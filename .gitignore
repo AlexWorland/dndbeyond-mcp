@@ -1,0 +1,30 @@
+node_modules/
+build/
+dist/
+*.js
+*.d.ts
+*.js.map
+!jest.config.js
+
+# Config with credentials
+.dndbeyond-mcp/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+
+# Test coverage
+coverage/
+
+# npm
+*.tgz
