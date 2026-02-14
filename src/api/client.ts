@@ -1,6 +1,6 @@
 import { TtlCache } from "../cache/lru.js";
 import { CircuitBreaker, RateLimiter, withRetry, HttpError } from "../resilience/index.js";
-import { getCobaltSession, buildAuthHeaders } from "./auth.js";
+import { getCobaltToken, getAllCookies, buildAuthHeadersFromCookies } from "./auth.js";
 
 export class DdbClient {
   private authExpired = false;
@@ -42,10 +42,7 @@ export class DdbClient {
 
     return this.circuitBreaker.execute(() =>
       withRetry(async () => {
-        const session = await getCobaltSession();
-        if (!session) throw new Error("Not authenticated. Run setup first.");
-
-        const headers = buildAuthHeaders(session);
+        const headers = await this.buildHeaders(url);
         const response = await fetch(url, { ...options, headers });
 
         if (!response.ok) {
@@ -61,5 +58,30 @@ export class DdbClient {
         return response.json() as Promise<T>;
       })
     );
+  }
+
+  private async buildHeaders(url: string): Promise<Record<string, string>> {
+    // character-service and auth-service use bearer tokens
+    if (url.includes("character-service.dndbeyond.com")) {
+      const token = await getCobaltToken();
+      return {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      };
+    }
+
+    // dndbeyond.com endpoints use cookies + cobalt token header
+    const cookies = await getAllCookies();
+    if (cookies.length === 0) throw new Error("Not authenticated. Run setup first.");
+
+    const token = await getCobaltToken();
+    const cookieStr = cookies.map((c) => `${c.name}=${c.value}`).join("; ");
+    return {
+      Cookie: cookieStr,
+      Authorization: `Bearer ${token}`,
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    };
   }
 }
