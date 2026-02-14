@@ -1,0 +1,31 @@
+{
+  "name": "dndbeyond-mcp",
+  "version": "0.1.0",
+  "description": "MCP server for D&D Beyond",
+  "type": "module",
+  "main": "build/index.js",
+  "bin": {
+    "dndbeyond-mcp": "build/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node build/index.js",
+    "setup": "node build/setup/auth-flow.js",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "undici": "^7.0.0",
+    "playwright": "^1.50.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
