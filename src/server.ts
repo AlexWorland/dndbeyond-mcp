@@ -10,6 +10,9 @@ import { registerCampaignResources } from "./resources/campaign.js";
 import { setupAuth, checkAuth } from "./tools/auth.js";
 import {
   getCharacter,
+  getCharacterSheet,
+  getDefinition,
+  getCharacterFull,
   listCharacters,
   updateHp,
   updateSpellSlots,
@@ -100,6 +103,63 @@ export async function startServer(): Promise<void> {
     "List all characters across all campaigns",
     {},
     async () => listCharacters(client)
+  );
+
+  server.tool(
+    "get_character_sheet",
+    "Get a comprehensive character sheet with stats, saves, skills, features, and resources. More detailed than get_character.",
+    {
+      characterId: z.number().optional().describe("The character ID"),
+      characterName: z
+        .string()
+        .optional()
+        .describe("The character name (case-insensitive search)"),
+    },
+    async (params) =>
+      getCharacterSheet(client, {
+        characterId: params.characterId,
+        characterName: params.characterName,
+      })
+  );
+
+  server.tool(
+    "get_definition",
+    "Look up a specific feat, spell, class feature, racial trait, or item by name (partial match). Returns the full description.",
+    {
+      characterId: z.number().optional().describe("The character ID"),
+      characterName: z
+        .string()
+        .optional()
+        .describe("The character name (case-insensitive search)"),
+      name: z
+        .string()
+        .describe(
+          "Name to search for (case-insensitive partial match, e.g. 'hunter' finds Hunter's Mark)"
+        ),
+    },
+    async (params) =>
+      getDefinition(client, {
+        characterId: params.characterId,
+        characterName: params.characterName,
+        name: params.name,
+      })
+  );
+
+  server.tool(
+    "get_character_full",
+    "Get the complete character sheet with ALL definitions expanded inline (spells, feats, features, traits, items). Large output (~15-30KB).",
+    {
+      characterId: z.number().optional().describe("The character ID"),
+      characterName: z
+        .string()
+        .optional()
+        .describe("The character name (case-insensitive search)"),
+    },
+    async (params) =>
+      getCharacterFull(client, {
+        characterId: params.characterId,
+        characterName: params.characterName,
+      })
   );
 
   // Register character write tools

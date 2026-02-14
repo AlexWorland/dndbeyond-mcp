@@ -39,7 +39,7 @@ export async function searchSpells(
       ];
 
       for (const spells of spellSources) {
-        for (const spell of spells) {
+        for (const spell of spells ?? []) {
           allSpells.set(spell.id, spell);
         }
       }
@@ -137,7 +137,7 @@ export async function getSpell(
       ];
 
       for (const spells of spellSources) {
-        const spell = spells.find(
+        const spell = (spells ?? []).find(
           (s) => s.definition.name.toLowerCase() === searchName
         );
         if (spell) {
@@ -168,23 +168,39 @@ function formatSpellDetails(spell: DdbSpell): ToolResult {
 
   // Format components
   const componentMap = { 1: "V", 2: "S", 3: "M" };
-  const components = def.components
+  const components = (def.components ?? [])
     .map((c) => componentMap[c as keyof typeof componentMap])
     .filter(Boolean)
     .join(", ");
 
   // Format casting time
-  const castingTime = `${def.castingTime.castingTimeInterval} action${def.castingTime.castingTimeInterval !== 1 ? "s" : ""}`;
+  const ACTIVATION_TYPES: Record<number, string> = { 1: "Action", 3: "Bonus Action", 6: "Reaction" };
+  const castingTime = def.activation
+    ? `${def.activation.activationTime} ${ACTIVATION_TYPES[def.activation.activationType] ?? "Action"}`
+    : "1 Action";
 
   // Format range
-  const range = def.range.value
-    ? `${def.range.value} ${def.range.origin}`
-    : def.range.origin;
+  let range = "Self";
+  if (def.range) {
+    range = def.range.rangeValue && def.range.origin !== "Self"
+      ? `${def.range.rangeValue} ft`
+      : def.range.origin;
+    if (def.range.aoeType && def.range.aoeValue) {
+      range += ` (${def.range.aoeValue}-ft ${def.range.aoeType})`;
+    }
+  }
 
   // Format duration
-  const duration = def.duration.durationInterval
-    ? `${def.duration.durationInterval} ${def.duration.durationType}`
-    : def.duration.durationType;
+  let duration = "Instantaneous";
+  if (def.duration) {
+    const interval = def.duration.durationInterval;
+    const unit = def.duration.durationUnit;
+    if (interval && unit) {
+      duration = `${def.concentration ? "Concentration, up to " : ""}${interval} ${unit}${interval > 1 ? "s" : ""}`;
+    } else if (def.duration.durationType === "Concentration") {
+      duration = "Concentration";
+    }
+  }
 
   // Build tags
   const tags = [];

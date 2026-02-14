@@ -1,12 +1,30 @@
 import type { DdbClient } from "../api/client.js";
 import { ENDPOINTS } from "../api/endpoints.js";
-import type { DdbCharacter, DdbAbilityScore, DdbAction, DdbModifier } from "../types/character.js";
+import type {
+  DdbCharacter,
+  DdbAbilityScore,
+  DdbAction,
+  DdbModifier,
+  DdbSpell,
+  DdbFeat,
+  DdbClassFeature,
+  DdbRacialTrait,
+  DdbInventoryItem,
+} from "../types/character.js";
 import type { DdbCampaignResponse } from "../types/api.js";
 
 interface GetCharacterParams {
   characterId?: number;
   characterName?: string;
 }
+
+interface GetDefinitionParams {
+  characterId?: number;
+  characterName?: string;
+  name: string;
+}
+
+type ToolResult = { content: Array<{ type: "text"; text: string }> };
 
 const ABILITY_NAMES = ["STR", "DEX", "CON", "INT", "WIS", "CHA"];
 
@@ -101,13 +119,7 @@ function calculateAc(char: DdbCharacter): number {
 }
 
 function formatSpells(char: DdbCharacter): string {
-  const allSpells = [
-    ...char.spells.class,
-    ...char.spells.race,
-    ...char.spells.background,
-    ...char.spells.item,
-    ...char.spells.feat,
-  ];
+  const allSpells = getAllSpells(char);
 
   if (allSpells.length === 0) return StringUtils.EMPTY;
 
@@ -141,12 +153,608 @@ function formatInventory(char: DdbCharacter): string {
   return `\nEquipped Items:\n${items.join("\n")}`;
 }
 
+// ============================================================================
+// UTILITY FUNCTIONS
+// ============================================================================
+
+function getAllSpells(char: DdbCharacter): DdbSpell[] {
+  return [
+    ...(char.spells.class ?? []),
+    ...(char.spells.race ?? []),
+    ...(char.spells.background ?? []),
+    ...(char.spells.item ?? []),
+    ...(char.spells.feat ?? []),
+  ];
+}
+
+function stripHtml(s: string | null | undefined): string {
+  if (!s) return StringUtils.EMPTY;
+  return s
+    .replace(/<[^>]*>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&ndash;/g, "\u2013")
+    .replace(/&mdash;/g, "\u2014")
+    .replace(/&#\d+;/g, (m) => String.fromCharCode(parseInt(m.slice(2, -1))))
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+async function resolveCharacterId(
+  client: DdbClient,
+  params: GetCharacterParams
+): Promise<number | string> {
+  if (params.characterId) return params.characterId;
+  if (params.characterName) {
+    const foundId = await findCharacterByName(client, params.characterName);
+    if (!foundId) return `Character "${params.characterName}" not found.`;
+    return foundId;
+  }
+  return "Either characterId or characterName must be provided.";
+}
+
+// Normalizes class/subclass feature access — class features nest under .definition,
+// subclass features have flat properties
+function featureName(f: DdbClassFeature): string {
+  return f.definition?.name ?? f.name ?? "Unknown";
+}
+function featureLevel(f: DdbClassFeature): number {
+  return f.definition?.requiredLevel ?? f.requiredLevel ?? 0;
+}
+function featureDescription(f: DdbClassFeature): string {
+  return f.definition?.description ?? f.description ?? "";
+}
+
+function computeLevel(char: DdbCharacter): number {
+  return char.classes.reduce((sum, cls) => sum + cls.level, 0);
+}
+
+function calculateProficiencyBonus(level: number): number {
+  return Math.ceil(level / 4) + 1;
+}
+
+function getAbilityScoreNumeric(char: DdbCharacter, id: number): number {
+  return computeFinalAbilityScore(char.stats, char.bonusStats, char.overrideStats, char.modifiers, id);
+}
+
+function getAbilityModNumeric(char: DdbCharacter, id: number): number {
+  return Math.floor((getAbilityScoreNumeric(char, id) - 10) / 2);
+}
+
+// ============================================================================
+// CHARACTER SHEET FORMATTING
+// ============================================================================
+
+const ABILITY_FULL_NAMES: Record<number, string> = {
+  1: "Strength",
+  2: "Dexterity",
+  3: "Constitution",
+  4: "Intelligence",
+  5: "Wisdom",
+  6: "Charisma",
+};
+
+const SAVING_THROW_SUBTYPES: Record<number, string> = {
+  1: "strength-saving-throws",
+  2: "dexterity-saving-throws",
+  3: "constitution-saving-throws",
+  4: "intelligence-saving-throws",
+  5: "wisdom-saving-throws",
+  6: "charisma-saving-throws",
+};
+
+const SKILL_DEFINITIONS: Array<{ name: string; abilityId: number; subType: string }> = [
+  { name: "Acrobatics", abilityId: 2, subType: "acrobatics" },
+  { name: "Animal Handling", abilityId: 5, subType: "animal-handling" },
+  { name: "Arcana", abilityId: 4, subType: "arcana" },
+  { name: "Athletics", abilityId: 1, subType: "athletics" },
+  { name: "Deception", abilityId: 6, subType: "deception" },
+  { name: "History", abilityId: 4, subType: "history" },
+  { name: "Insight", abilityId: 5, subType: "insight" },
+  { name: "Intimidation", abilityId: 6, subType: "intimidation" },
+  { name: "Investigation", abilityId: 4, subType: "investigation" },
+  { name: "Medicine", abilityId: 5, subType: "medicine" },
+  { name: "Nature", abilityId: 4, subType: "nature" },
+  { name: "Perception", abilityId: 5, subType: "perception" },
+  { name: "Performance", abilityId: 6, subType: "performance" },
+  { name: "Persuasion", abilityId: 6, subType: "persuasion" },
+  { name: "Religion", abilityId: 4, subType: "religion" },
+  { name: "Sleight of Hand", abilityId: 2, subType: "sleight-of-hand" },
+  { name: "Stealth", abilityId: 2, subType: "stealth" },
+  { name: "Survival", abilityId: 5, subType: "survival" },
+];
+
+function hasModifierBySubType(
+  modifiers: Record<string, DdbModifier[]>,
+  subType: string,
+  type: string
+): boolean {
+  for (const list of Object.values(modifiers)) {
+    if (!Array.isArray(list)) continue;
+    for (const mod of list) {
+      if (mod.subType === subType && mod.type === type) return true;
+    }
+  }
+  return false;
+}
+
+function formatSavingThrows(char: DdbCharacter): string {
+  const profBonus = calculateProficiencyBonus(computeLevel(char));
+  const saves = [];
+
+  for (let id = 1; id <= 6; id++) {
+    const mod = getAbilityModNumeric(char, id);
+    const proficient = hasModifierBySubType(char.modifiers, SAVING_THROW_SUBTYPES[id], "proficiency");
+    const total = mod + (proficient ? profBonus : 0);
+    const sign = total >= 0 ? "+" : "";
+    const prof = proficient ? " *" : "";
+    saves.push(`${ABILITY_NAMES[id - 1]}: ${sign}${total}${prof}`);
+  }
+
+  return saves.join(" | ");
+}
+
+function formatSkills(char: DdbCharacter): string {
+  const profBonus = calculateProficiencyBonus(computeLevel(char));
+
+  const lines = SKILL_DEFINITIONS.map((skill) => {
+    const abilityMod = getAbilityModNumeric(char, skill.abilityId);
+    const proficient = hasModifierBySubType(char.modifiers, skill.subType, "proficiency");
+    const expertise = hasModifierBySubType(char.modifiers, skill.subType, "expertise");
+
+    let total = abilityMod;
+    let marker = "";
+    if (expertise) {
+      total += profBonus * 2;
+      marker = " **";
+    } else if (proficient) {
+      total += profBonus;
+      marker = " *";
+    }
+
+    const sign = total >= 0 ? "+" : "";
+    return `  ${skill.name}: ${sign}${total}${marker}`;
+  });
+
+  return lines.join("\n");
+}
+
+function formatSpellcasting(char: DdbCharacter): string {
+  const allSpells = getAllSpells(char);
+
+  if (allSpells.length === 0) return StringUtils.EMPTY;
+
+  const profBonus = calculateProficiencyBonus(computeLevel(char));
+  // WIS is most common; could be improved by checking class casting ability
+  const wisMod = getAbilityModNumeric(char, 5);
+  const spellSaveDC = 8 + profBonus + wisMod;
+  const spellAttack = profBonus + wisMod;
+  const attackSign = spellAttack >= 0 ? "+" : "";
+
+  return `Spell Save DC: ${spellSaveDC} | Spell Attack: ${attackSign}${spellAttack}`;
+}
+
+function formatLimitedUseResources(char: DdbCharacter): string {
+  const resources: string[] = [];
+  const actions = char.actions ?? {};
+
+  for (const list of Object.values(actions)) {
+    if (!Array.isArray(list)) continue;
+    for (const action of list) {
+      if (action.limitedUse) {
+        const used = action.limitedUse.numberUsed;
+        const max = action.limitedUse.maxUses;
+        const remaining = max - used;
+        const reset = action.limitedUse.resetTypeDescription || "unknown";
+        resources.push(`  ${action.name}: ${remaining}/${max} (${reset})`);
+      }
+    }
+  }
+
+  return resources.length > 0 ? resources.join("\n") : "  None";
+}
+
+function formatFeatNames(char: DdbCharacter): string {
+  if (!char.feats || char.feats.length === 0) return "None";
+  return char.feats.map((f) => f.definition.name).join(", ");
+}
+
+function getActiveClassFeatures(char: DdbCharacter): Array<{ name: string; className: string; level: number }> {
+  const seen = new Set<string>();
+  const features: Array<{ name: string; className: string; level: number }> = [];
+
+  for (const cls of char.classes) {
+    const classFeatures = cls.classFeatures ?? [];
+    for (const feature of classFeatures) {
+      if (featureLevel(feature) <= cls.level && !seen.has(featureName(feature))) {
+        seen.add(featureName(feature));
+        features.push({
+          name: featureName(feature),
+          className: cls.definition.name,
+          level: featureLevel(feature),
+        });
+      }
+    }
+
+    if (cls.subclassDefinition?.classFeatures) {
+      for (const feature of cls.subclassDefinition.classFeatures) {
+        if (featureLevel(feature) <= cls.level && !seen.has(featureName(feature))) {
+          seen.add(featureName(feature));
+          features.push({
+            name: featureName(feature),
+            className: `${cls.definition.name} (${cls.subclassDefinition.name})`,
+            level: featureLevel(feature),
+          });
+        }
+      }
+    }
+  }
+
+  return features;
+}
+
+function formatClassFeatureNames(char: DdbCharacter): string {
+  const features = getActiveClassFeatures(char);
+  if (features.length === 0) return "None";
+  return features.map((f) => f.name).join(", ");
+}
+
+function formatRacialTraitNames(char: DdbCharacter): string {
+  const traits = char.race.racialTraits ?? [];
+  if (traits.length === 0) return "None";
+  return traits.map((t) => t.definition.name).join(", ");
+}
+
+function formatCharacterSheet(char: DdbCharacter): string {
+  const sections = [
+    `=== ${char.name} ===`,
+    `Race: ${char.race.fullName}`,
+    `Class: ${formatClasses(char)}`,
+    `Level: ${computeLevel(char)} (Proficiency Bonus: +${calculateProficiencyBonus(computeLevel(char))})`,
+    `Background: ${char.background?.definition?.name ?? "None"}`,
+    `HP: ${formatHp(char)}`,
+    `AC: ${calculateAc(char)}`,
+    StringUtils.EMPTY,
+    `--- Ability Scores ---`,
+    formatAbilityScores(char),
+    StringUtils.EMPTY,
+    `--- Saving Throws (* = proficient) ---`,
+    formatSavingThrows(char),
+    StringUtils.EMPTY,
+    `--- Skills (* = proficient, ** = expertise) ---`,
+    formatSkills(char),
+  ];
+
+  const spellcasting = formatSpellcasting(char);
+  if (spellcasting) {
+    sections.push(StringUtils.EMPTY, `--- Spellcasting ---`, spellcasting);
+    const spells = formatSpells(char);
+    if (spells) sections.push(spells.trim());
+  }
+
+  sections.push(
+    StringUtils.EMPTY,
+    `--- Limited-Use Resources ---`,
+    formatLimitedUseResources(char),
+    StringUtils.EMPTY,
+    `--- Feats ---`,
+    formatFeatNames(char),
+    StringUtils.EMPTY,
+    `--- Class Features ---`,
+    formatClassFeatureNames(char),
+    StringUtils.EMPTY,
+    `--- Racial Traits ---`,
+    formatRacialTraitNames(char)
+  );
+
+  const inventory = formatInventory(char);
+  if (inventory) sections.push(inventory);
+
+  if (char.campaign) {
+    sections.push(StringUtils.EMPTY, `Campaign: ${char.campaign.name}`);
+  }
+
+  return sections.join("\n");
+}
+
+// ============================================================================
+// DEFINITION LOOKUP
+// ============================================================================
+
+interface DefinitionResult {
+  type: string;
+  name: string;
+  source: string;
+  text: string;
+}
+
+function formatSpellDefinition(spell: DdbSpell): string {
+  const d = spell.definition;
+  const ACTIVATION_TYPES: Record<number, string> = {
+    1: "Action",
+    3: "Bonus Action",
+    6: "Reaction",
+  };
+  const components = (d.components ?? [])
+    .map((c) => ({ 1: "V", 2: "S", 3: "M" })[c])
+    .filter(Boolean)
+    .join(", ");
+  const materialNote = d.componentsDescription
+    ? ` (${d.componentsDescription})`
+    : "";
+
+  const levelLabel = d.level === 0 ? "Cantrip" : `Level ${d.level}`;
+  const castingTime = d.activation
+    ? `${d.activation.activationTime} ${ACTIVATION_TYPES[d.activation.activationType] ?? "Action"}`
+    : "1 Action";
+
+  let range = "Self";
+  if (d.range) {
+    if (d.range.rangeValue && d.range.origin !== "Self") {
+      range = `${d.range.rangeValue} ft`;
+    } else {
+      range = d.range.origin;
+    }
+    if (d.range.aoeType && d.range.aoeValue) {
+      range += ` (${d.range.aoeValue}-ft ${d.range.aoeType})`;
+    }
+  }
+
+  let duration = "Instantaneous";
+  if (d.duration) {
+    const interval = d.duration.durationInterval;
+    const unit = d.duration.durationUnit;
+    const isConcentration = d.duration.durationType === "Concentration";
+    if (interval && unit) {
+      duration = `${isConcentration ? "Concentration, up to " : ""}${interval} ${unit}${interval > 1 ? "s" : ""}`;
+    } else if (isConcentration) {
+      duration = "Concentration";
+    }
+  }
+
+  const lines = [
+    `${d.name} (${levelLabel} ${d.school})`,
+    `Casting Time: ${castingTime}`,
+    `Range: ${range}`,
+    `Components: ${components || "None"}${materialNote}`,
+    `Duration: ${duration}`,
+  ];
+  if (d.ritual) lines.push("Ritual: Yes");
+  lines.push(StringUtils.EMPTY, stripHtml(d.description));
+  return lines.join("\n");
+}
+
+function formatFeatDefinition(feat: DdbFeat): string {
+  const d = feat.definition;
+  const lines = [d.name];
+  if (d.prerequisite) lines.push(`Prerequisite: ${d.prerequisite}`);
+  lines.push(StringUtils.EMPTY, stripHtml(d.description));
+  return lines.join("\n");
+}
+
+function formatClassFeatureDefinition(feature: DdbClassFeature, className: string): string {
+  const lines = [
+    `${featureName(feature)} (${className}, Level ${featureLevel(feature)})`,
+    StringUtils.EMPTY,
+    stripHtml(featureDescription(feature)),
+  ];
+  return lines.join("\n");
+}
+
+function formatRacialTraitDefinition(trait: DdbRacialTrait, raceName: string): string {
+  const d = trait.definition;
+  return `${d.name} (${raceName})\n\n${stripHtml(d.description)}`;
+}
+
+function formatItemDefinition(item: DdbInventoryItem): string {
+  const d = item.definition;
+  const lines = [
+    `${d.name} (${d.type}, ${d.rarity})`,
+    `Weight: ${d.weight} lb`,
+  ];
+  lines.push(StringUtils.EMPTY, stripHtml(d.description));
+  return lines.join("\n");
+}
+
+function searchDefinitions(char: DdbCharacter, query: string): DefinitionResult[] {
+  const results: DefinitionResult[] = [];
+  const q = query.toLowerCase();
+
+  // Search spells
+  const allSpells = getAllSpells(char);
+  for (const spell of allSpells) {
+    if (spell.definition.name.toLowerCase().includes(q)) {
+      results.push({
+        type: "Spell",
+        name: spell.definition.name,
+        source: `Level ${spell.definition.level} ${spell.definition.school}`,
+        text: formatSpellDefinition(spell),
+      });
+    }
+  }
+
+  // Search feats
+  for (const feat of char.feats ?? []) {
+    if (feat.definition.name.toLowerCase().includes(q)) {
+      results.push({
+        type: "Feat",
+        name: feat.definition.name,
+        source: "Feat",
+        text: formatFeatDefinition(feat),
+      });
+    }
+  }
+
+  // Search active class features (respecting level filter)
+  const seen = new Set<string>();
+  for (const cls of char.classes) {
+    for (const feature of cls.classFeatures ?? []) {
+      if (
+        featureLevel(feature) <= cls.level &&
+        featureName(feature).toLowerCase().includes(q) &&
+        !seen.has(featureName(feature))
+      ) {
+        seen.add(featureName(feature));
+        results.push({
+          type: "Class Feature",
+          name: featureName(feature),
+          source: `${cls.definition.name} (Level ${featureLevel(feature)})`,
+          text: formatClassFeatureDefinition(feature, cls.definition.name),
+        });
+      }
+    }
+
+    if (cls.subclassDefinition?.classFeatures) {
+      for (const feature of cls.subclassDefinition.classFeatures) {
+        if (
+          featureLevel(feature) <= cls.level &&
+          featureName(feature).toLowerCase().includes(q) &&
+          !seen.has(featureName(feature))
+        ) {
+          seen.add(featureName(feature));
+          results.push({
+            type: "Subclass Feature",
+            name: featureName(feature),
+            source: `${cls.definition.name} / ${cls.subclassDefinition.name} (Level ${featureLevel(feature)})`,
+            text: formatClassFeatureDefinition(feature, `${cls.definition.name} (${cls.subclassDefinition.name})`),
+          });
+        }
+      }
+    }
+  }
+
+  // Search racial traits
+  for (const trait of char.race.racialTraits ?? []) {
+    if (trait.definition.name.toLowerCase().includes(q)) {
+      results.push({
+        type: "Racial Trait",
+        name: trait.definition.name,
+        source: char.race.fullName,
+        text: formatRacialTraitDefinition(trait, char.race.fullName),
+      });
+    }
+  }
+
+  // Search background feature
+  const bgDef = char.background?.definition;
+  if (bgDef?.featureName && bgDef.featureName.toLowerCase().includes(q)) {
+    results.push({
+      type: "Background Feature",
+      name: bgDef.featureName,
+      source: bgDef.name,
+      text: `${bgDef.featureName} (${bgDef.name})\n\n${stripHtml(bgDef.featureDescription)}`,
+    });
+  }
+
+  // Search equipped items
+  for (const item of char.inventory.filter((i) => i.equipped)) {
+    if (item.definition.name.toLowerCase().includes(q)) {
+      results.push({
+        type: "Item",
+        name: item.definition.name,
+        source: `${item.definition.type}, ${item.definition.rarity}`,
+        text: formatItemDefinition(item),
+      });
+    }
+  }
+
+  return results;
+}
+
+// ============================================================================
+// FULL CHARACTER SHEET (WITH ALL DEFINITIONS)
+// ============================================================================
+
+function formatCharacterFull(char: DdbCharacter): string {
+  const sheet = formatCharacterSheet(char);
+  const definitionSections: string[] = [];
+
+  // Spells
+  const allSpells = getAllSpells(char);
+  const preparedSpells = allSpells.filter((s) => s.prepared || s.alwaysPrepared);
+  if (preparedSpells.length > 0) {
+    const spellDefs = preparedSpells
+      .sort((a, b) => a.definition.level - b.definition.level || a.definition.name.localeCompare(b.definition.name))
+      .map((s) => formatSpellDefinition(s));
+    definitionSections.push(`\n=== Spell Definitions ===\n\n${spellDefs.join("\n\n---\n\n")}`);
+  }
+
+  // Feats
+  if (char.feats && char.feats.length > 0) {
+    const featDefs = char.feats.map((f) => formatFeatDefinition(f));
+    definitionSections.push(`\n=== Feat Definitions ===\n\n${featDefs.join("\n\n---\n\n")}`);
+  }
+
+  // Active class features
+  const activeFeatures = getActiveClassFeatures(char);
+  if (activeFeatures.length > 0) {
+    const featureDefs: string[] = [];
+    const seen = new Set<string>();
+
+    for (const cls of char.classes) {
+      for (const feature of cls.classFeatures ?? []) {
+        if (featureLevel(feature) <= cls.level && !seen.has(featureName(feature))) {
+          seen.add(featureName(feature));
+          featureDefs.push(formatClassFeatureDefinition(feature, cls.definition.name));
+        }
+      }
+
+      if (cls.subclassDefinition?.classFeatures) {
+        for (const feature of cls.subclassDefinition.classFeatures) {
+          if (featureLevel(feature) <= cls.level && !seen.has(featureName(feature))) {
+            seen.add(featureName(feature));
+            featureDefs.push(
+              formatClassFeatureDefinition(feature, `${cls.definition.name} (${cls.subclassDefinition.name})`)
+            );
+          }
+        }
+      }
+    }
+
+    if (featureDefs.length > 0) {
+      definitionSections.push(`\n=== Class Feature Definitions ===\n\n${featureDefs.join("\n\n---\n\n")}`);
+    }
+  }
+
+  // Racial traits
+  const traits = char.race.racialTraits ?? [];
+  if (traits.length > 0) {
+    const traitDefs = traits.map((t) => formatRacialTraitDefinition(t, char.race.fullName));
+    definitionSections.push(`\n=== Racial Trait Definitions ===\n\n${traitDefs.join("\n\n---\n\n")}`);
+  }
+
+  // Background feature
+  const bgDef = char.background?.definition;
+  if (bgDef?.featureName) {
+    definitionSections.push(
+      `\n=== Background Feature ===\n\n${bgDef.featureName} (${bgDef.name})\n\n${stripHtml(bgDef.featureDescription)}`
+    );
+  }
+
+  // Equipped items with descriptions
+  const equippedItems = char.inventory.filter((i) => i.equipped);
+  if (equippedItems.length > 0) {
+    const itemDefs = equippedItems.map((i) => formatItemDefinition(i));
+    definitionSections.push(`\n=== Equipped Item Definitions ===\n\n${itemDefs.join("\n\n---\n\n")}`);
+  }
+
+  return sheet + "\n" + definitionSections.join("\n");
+}
+
+// ============================================================================
+// BASIC CHARACTER FORMAT (original)
+// ============================================================================
+
 function formatCharacter(char: DdbCharacter): string {
   const sections = [
     `Name: ${char.name}`,
     `Race: ${char.race.fullName}`,
     `Class: ${formatClasses(char)}`,
-    `Level: ${char.level}`,
+    `Level: ${computeLevel(char)}`,
     `HP: ${formatHp(char)}`,
     `AC: ${calculateAc(char)}`,
     `\nAbility Scores:\n${formatAbilityScores(char)}`,
@@ -273,7 +881,7 @@ export async function listCharacters(
         name: details.name,
         race: details.race.fullName,
         classes: formatClasses(details),
-        level: details.level,
+        level: computeLevel(details),
         campaign: char.campaignName,
       };
     })
@@ -292,6 +900,78 @@ export async function listCharacters(
       },
     ],
   };
+}
+
+// ============================================================================
+// NEW CHARACTER SHEET TOOLS
+// ============================================================================
+
+export async function getCharacterSheet(
+  client: DdbClient,
+  params: GetCharacterParams
+): Promise<ToolResult> {
+  const idOrError = await resolveCharacterId(client, params);
+  if (typeof idOrError === "string") {
+    return { content: [{ type: "text", text: idOrError }] };
+  }
+
+  const character = await client.get<DdbCharacter>(
+    ENDPOINTS.character.get(idOrError),
+    `character:${idOrError}`,
+    60_000
+  );
+
+  return { content: [{ type: "text", text: formatCharacterSheet(character) }] };
+}
+
+export async function getDefinition(
+  client: DdbClient,
+  params: GetDefinitionParams
+): Promise<ToolResult> {
+  const idOrError = await resolveCharacterId(client, params);
+  if (typeof idOrError === "string") {
+    return { content: [{ type: "text", text: idOrError }] };
+  }
+
+  const character = await client.get<DdbCharacter>(
+    ENDPOINTS.character.get(idOrError),
+    `character:${idOrError}`,
+    60_000
+  );
+
+  const results = searchDefinitions(character, params.name);
+
+  if (results.length === 0) {
+    return {
+      content: [
+        {
+          type: "text",
+          text: `No definition found matching "${params.name}" on ${character.name}.`,
+        },
+      ],
+    };
+  }
+
+  const formatted = results.map((r) => `[${r.type}] ${r.text}`).join("\n\n===\n\n");
+  return { content: [{ type: "text", text: formatted }] };
+}
+
+export async function getCharacterFull(
+  client: DdbClient,
+  params: GetCharacterParams
+): Promise<ToolResult> {
+  const idOrError = await resolveCharacterId(client, params);
+  if (typeof idOrError === "string") {
+    return { content: [{ type: "text", text: idOrError }] };
+  }
+
+  const character = await client.get<DdbCharacter>(
+    ENDPOINTS.character.get(idOrError),
+    `character:${idOrError}`,
+    60_000
+  );
+
+  return { content: [{ type: "text", text: formatCharacterFull(character) }] };
 }
 
 class StringUtils {

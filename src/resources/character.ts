@@ -6,6 +6,10 @@ import type { DdbCampaignResponse } from "../types/api.js";
 
 const ABILITY_NAMES = ["STR", "DEX", "CON", "INT", "WIS", "CHA"];
 
+function computeLevel(char: DdbCharacter): number {
+  return char.classes.reduce((sum, cls) => sum + cls.level, 0);
+}
+
 function calculateAbilityModifier(score: number): string {
   const modifier = Math.floor((score - 10) / 2);
   return modifier >= 0 ? `+${modifier}` : `${modifier}`;
@@ -73,7 +77,7 @@ function formatCharacter(char: DdbCharacter): string {
     `Name: ${char.name}`,
     `Race: ${char.race.fullName}`,
     `Class: ${formatClasses(char)}`,
-    `Level: ${char.level}`,
+    `Level: ${computeLevel(char)}`,
     `HP: ${formatHp(char)}`,
     `AC: ${calculateAc(char)}`,
     `\nAbility Scores:\n${formatAbilityScores(char)}`,
@@ -88,11 +92,11 @@ function formatCharacter(char: DdbCharacter): string {
 
 function formatSpellList(char: DdbCharacter): string {
   const allSpells = [
-    ...char.spells.class,
-    ...char.spells.race,
-    ...char.spells.background,
-    ...char.spells.item,
-    ...char.spells.feat,
+    ...(char.spells.class ?? []),
+    ...(char.spells.race ?? []),
+    ...(char.spells.background ?? []),
+    ...(char.spells.item ?? []),
+    ...(char.spells.feat ?? []),
   ];
 
   if (allSpells.length === 0) return "No spells available.";
@@ -199,7 +203,7 @@ export function registerCharacterResources(server: McpServer, client: DdbClient)
             name: details.name,
             race: details.race.fullName,
             classes: formatClasses(details),
-            level: details.level,
+            level: computeLevel(details),
             campaign: char.campaignName,
           };
         })

@@ -55,7 +55,21 @@ export class DdbClient {
           );
         }
 
-        return response.json() as Promise<T>;
+        const json = await response.json();
+
+        // Character-service wraps responses in { id, success, message, data, pagination }.
+        // Unwrap the envelope so callers get the data directly.
+        if (json && typeof json === "object" && "success" in json && "data" in json) {
+          if (!json.success) {
+            throw new HttpError(
+              `D&D Beyond API error: ${json.message || "Unknown error"}`,
+              400,
+            );
+          }
+          return json.data as T;
+        }
+
+        return json as T;
       })
     );
   }
