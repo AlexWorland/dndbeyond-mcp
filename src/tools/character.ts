@@ -12,6 +12,7 @@ import type {
   DdbInventoryItem,
 } from "../types/character.js";
 import type { DdbCampaign } from "../types/api.js";
+import { fuzzyMatch } from "../utils/fuzzy-match.js";
 
 interface GetCharacterParams {
   characterId?: number;
@@ -115,7 +116,80 @@ function formatHp(char: DdbCharacter): string {
 
 function calculateAc(char: DdbCharacter): number {
   const dexMod = Math.floor((computeFinalAbilityScore(char.stats, char.bonusStats, char.overrideStats, char.modifiers, 2) - 10) / 2);
-  return 10 + dexMod;
+  const conMod = Math.floor((computeFinalAbilityScore(char.stats, char.bonusStats, char.overrideStats, char.modifiers, 3) - 10) / 2);
+  const wisMod = Math.floor((computeFinalAbilityScore(char.stats, char.bonusStats, char.overrideStats, char.modifiers, 5) - 10) / 2);
+
+  // Find equipped armor and shields
+  let baseAc = 10;
+  let armorType: "heavy" | "medium" | "light" | "none" = "none";
+  let shieldBonus = 0;
+
+  for (const item of char.inventory) {
+    if (!item.equipped) continue;
+
+    const itemType = item.definition.type?.toLowerCase() || "";
+    const filterType = item.definition.filterType?.toLowerCase() || "";
+
+    // Check for shield
+    if (itemType.includes("shield")) {
+      shieldBonus = item.definition.armorClass ?? 2;
+      continue;
+    }
+
+    // Check for armor
+    if (itemType.includes("armor")) {
+      const acValue = item.definition.armorClass ?? 10;
+
+      if (filterType.includes("heavy") || itemType.includes("heavy")) {
+        baseAc = acValue;
+        armorType = "heavy";
+      } else if (filterType.includes("medium") || itemType.includes("medium")) {
+        baseAc = acValue;
+        armorType = "medium";
+      } else if (filterType.includes("light") || itemType.includes("light")) {
+        baseAc = acValue;
+        armorType = "light";
+      } else {
+        // Default to light armor if type unclear
+        baseAc = acValue;
+        armorType = "light";
+      }
+    }
+  }
+
+  // Apply DEX modifier based on armor type
+  let finalAc = baseAc;
+  if (armorType === "none") {
+    // Check for unarmored defense
+    const isBarbarian = char.classes.some(cls => cls.definition.name === "Barbarian");
+    const isMonk = char.classes.some(cls => cls.definition.name === "Monk");
+
+    if (isBarbarian) {
+      finalAc = 10 + dexMod + conMod;
+    } else if (isMonk) {
+      finalAc = 10 + dexMod + wisMod;
+    } else {
+      finalAc = 10 + dexMod;
+    }
+  } else if (armorType === "light") {
+    finalAc = baseAc + dexMod;
+  } else if (armorType === "medium") {
+    finalAc = baseAc + Math.min(dexMod, 2);
+  } else if (armorType === "heavy") {
+    finalAc = baseAc; // No DEX bonus
+  }
+
+  // Add shield bonus
+  finalAc += shieldBonus;
+
+  // Add AC modifiers from features/spells
+  const acBonus = sumModifierBonuses(char.modifiers, "armor-class")
+    + sumModifierBonuses(char.modifiers, "armored-armor-class")
+    + sumModifierBonuses(char.modifiers, "unarmored-armor-class");
+
+  finalAc += acBonus;
+
+  return finalAc;
 }
 
 function formatSpells(char: DdbCharacter): string {
@@ -328,14 +402,38 @@ function formatSpellcasting(char: DdbCharacter): string {
 
   if (allSpells.length === 0) return StringUtils.EMPTY;
 
-  const profBonus = calculateProficiencyBonus(computeLevel(char));
-  // WIS is most common; could be improved by checking class casting ability
-  const wisMod = getAbilityModNumeric(char, 5);
-  const spellSaveDC = 8 + profBonus + wisMod;
-  const spellAttack = profBonus + wisMod;
-  const attackSign = spellAttack >= 0 ? "+" : "";
+  const SPELLCASTING_ABILITY: Record<string, number> = {
+    "Wizard": 4, "Artificer": 4,  // INT
+    "Sorcerer": 6, "Warlock": 6, "Bard": 6, "Paladin": 6,  // CHA
+    "Cleric": 5, "Druid": 5, "Ranger": 5,  // WIS
+  };
 
-  return `Spell Save DC: ${spellSaveDC} | Spell Attack: ${attackSign}${spellAttack}`;
+  const profBonus = calculateProficiencyBonus(computeLevel(char));
+  const spellcastingClasses = char.classes.filter(cls => SPELLCASTING_ABILITY[cls.definition.name]);
+
+  if (spellcastingClasses.length === 0) {
+    // Fallback to WIS if no known spellcasting class
+    const wisMod = getAbilityModNumeric(char, 5);
+    const spellSaveDC = 8 + profBonus + wisMod;
+    const spellAttack = profBonus + wisMod;
+    const attackSign = spellAttack >= 0 ? "+" : "";
+    return `Spell Save DC: ${spellSaveDC} | Spell Attack: ${attackSign}${spellAttack}`;
+  }
+
+  const dcStrings = spellcastingClasses.map(cls => {
+    const abilityId = SPELLCASTING_ABILITY[cls.definition.name] ?? 5;
+    const abilityMod = getAbilityModNumeric(char, abilityId);
+    const spellSaveDC = 8 + profBonus + abilityMod;
+    const spellAttack = profBonus + abilityMod;
+    const attackSign = spellAttack >= 0 ? "+" : "";
+
+    if (spellcastingClasses.length > 1) {
+      return `${cls.definition.name}: DC ${spellSaveDC} (${attackSign}${spellAttack} attack)`;
+    }
+    return `Spell Save DC: ${spellSaveDC} | Spell Attack: ${attackSign}${spellAttack}`;
+  });
+
+  return dcStrings.join(" | ");
 }
 
 function formatLimitedUseResources(char: DdbCharacter): string {
@@ -409,6 +507,108 @@ function formatRacialTraitNames(char: DdbCharacter): string {
   return traits.map((t) => t.definition.name).join(", ");
 }
 
+function formatSpeed(char: DdbCharacter): string {
+  // Base walking speed for most races is 30 ft
+  let baseSpeed = 30;
+
+  // Check modifiers for speed bonuses
+  let speedBonus = sumModifierBonuses(char.modifiers, "speed");
+  speedBonus += sumModifierBonuses(char.modifiers, "unarmored-movement");
+  speedBonus += sumModifierBonuses(char.modifiers, "innate-speed-walking");
+
+  const totalSpeed = baseSpeed + speedBonus;
+  return `Speed: ${totalSpeed} ft`;
+}
+
+function formatSpellSlots(char: DdbCharacter): string {
+  if (!char.spellSlots || char.spellSlots.length === 0) {
+    return StringUtils.EMPTY;
+  }
+
+  const lines = char.spellSlots
+    .filter(slot => slot.available > 0)
+    .map(slot => {
+      const filled = "\u25CF".repeat(slot.available - slot.used);
+      const empty = "\u25CB".repeat(slot.used);
+      return `Level ${slot.level}: ${filled}${empty} (${slot.used}/${slot.available} used)`;
+    });
+
+  if (lines.length === 0) return StringUtils.EMPTY;
+
+  let result = `\n--- Spell Slots ---\n${lines.join("\n")}`;
+
+  // Add pact magic if available
+  if (char.pactMagic && char.pactMagic.available > 0) {
+    const filled = "\u25CF".repeat(char.pactMagic.available - char.pactMagic.used);
+    const empty = "\u25CB".repeat(char.pactMagic.used);
+    result += `\nPact Magic (Level ${char.pactMagic.level}): ${filled}${empty} (${char.pactMagic.used}/${char.pactMagic.available} used)`;
+  }
+
+  return result;
+}
+
+function formatHitDice(char: DdbCharacter): string {
+  const hitDiceByClass: string[] = [];
+
+  // Hit die type mapping
+  const HIT_DIE_MAP: Record<string, string> = {
+    "Barbarian": "d12",
+    "Fighter": "d10",
+    "Paladin": "d10",
+    "Ranger": "d10",
+    "Bard": "d8",
+    "Cleric": "d8",
+    "Druid": "d8",
+    "Monk": "d8",
+    "Rogue": "d8",
+    "Warlock": "d8",
+    "Artificer": "d8",
+    "Sorcerer": "d6",
+    "Wizard": "d6",
+  };
+
+  const hitDiceUsed = char.hitDiceUsed ?? 0;
+
+  for (const cls of char.classes) {
+    const hitDie = HIT_DIE_MAP[cls.definition.name] ?? "d8";
+    const total = cls.level;
+    hitDiceByClass.push(`${cls.definition.name}: ${total}${hitDie}`);
+  }
+
+  if (hitDiceByClass.length === 0) return StringUtils.EMPTY;
+
+  return `\n--- Hit Dice ---\n${hitDiceByClass.join("\n")}${hitDiceUsed > 0 ? ` (${hitDiceUsed} used)` : ""}`;
+}
+
+function formatTraits(char: DdbCharacter): string {
+  const traits = char.traits;
+  const lines: string[] = [];
+
+  if (traits.personalityTraits) lines.push(`Personality: ${traits.personalityTraits}`);
+  if (traits.ideals) lines.push(`Ideals: ${traits.ideals}`);
+  if (traits.bonds) lines.push(`Bonds: ${traits.bonds}`);
+  if (traits.flaws) lines.push(`Flaws: ${traits.flaws}`);
+
+  if (lines.length === 0) return StringUtils.EMPTY;
+
+  return `\n--- Traits ---\n${lines.join("\n")}`;
+}
+
+function formatNotes(char: DdbCharacter): string {
+  const notes = char.notes;
+  const lines: string[] = [];
+
+  if (notes.backstory) lines.push(`Backstory: ${notes.backstory}`);
+  if (notes.personalPossessions) lines.push(`Personal Possessions: ${notes.personalPossessions}`);
+  if (notes.otherNotes) lines.push(`Other Notes: ${notes.otherNotes}`);
+  if (notes.allies) lines.push(`Allies: ${notes.allies}`);
+  if (notes.organizations) lines.push(`Organizations: ${notes.organizations}`);
+
+  if (lines.length === 0) return StringUtils.EMPTY;
+
+  return `\n--- Notes ---\n${lines.join("\n")}`;
+}
+
 function formatCharacterSheet(char: DdbCharacter): string {
   const sections = [
     `=== ${char.name} ===`,
@@ -418,6 +618,7 @@ function formatCharacterSheet(char: DdbCharacter): string {
     `Background: ${char.background?.definition?.name ?? "None"}`,
     `HP: ${formatHp(char)}`,
     `AC: ${calculateAc(char)}`,
+    formatSpeed(char),
     StringUtils.EMPTY,
     `--- Ability Scores ---`,
     formatAbilityScores(char),
@@ -434,7 +635,15 @@ function formatCharacterSheet(char: DdbCharacter): string {
     sections.push(StringUtils.EMPTY, `--- Spellcasting ---`, spellcasting);
     const spells = formatSpells(char);
     if (spells) sections.push(spells.trim());
+
+    // Add spell slots display
+    const spellSlots = formatSpellSlots(char);
+    if (spellSlots) sections.push(spellSlots.trim());
   }
+
+  // Add hit dice display
+  const hitDice = formatHitDice(char);
+  if (hitDice) sections.push(hitDice.trim());
 
   sections.push(
     StringUtils.EMPTY,
@@ -453,6 +662,14 @@ function formatCharacterSheet(char: DdbCharacter): string {
 
   const inventory = formatInventory(char);
   if (inventory) sections.push(inventory);
+
+  // Add traits display
+  const traits = formatTraits(char);
+  if (traits) sections.push(traits.trim());
+
+  // Add notes display
+  const notes = formatNotes(char);
+  if (notes) sections.push(notes.trim());
 
   if (char.campaign) {
     sections.push(StringUtils.EMPTY, `Campaign: ${char.campaign.name}`);
@@ -985,6 +1202,7 @@ class StringUtils {
 interface UpdateHpParams {
   characterId: number;
   hpChange: number;
+  tempHp?: number;
 }
 
 export async function updateHp(
@@ -1005,9 +1223,17 @@ export async function updateHp(
     )
   );
 
+  const putBody: { removedHitPoints: number; temporaryHitPoints?: number } = {
+    removedHitPoints: newRemovedHp,
+  };
+
+  if (params.tempHp !== undefined) {
+    putBody.temporaryHitPoints = params.tempHp;
+  }
+
   await client.put(
     ENDPOINTS.character.updateHp(params.characterId),
-    { removedHitPoints: newRemovedHp },
+    putBody,
     [`character:${params.characterId}`]
   );
 
@@ -1015,11 +1241,16 @@ export async function updateHp(
   const amount = Math.abs(params.hpChange);
   const newCurrent = calculateMaxHp(character) - newRemovedHp;
 
+  let text = `${action} ${character.name} for ${amount} HP. Current HP: ${newCurrent}/${calculateMaxHp(character)}`;
+  if (params.tempHp !== undefined) {
+    text += ` (${params.tempHp} temp HP)`;
+  }
+
   return {
     content: [
       {
         type: "text",
-        text: `${action} ${character.name} for ${amount} HP. Current HP: ${newCurrent}/${calculateMaxHp(character)}`,
+        text,
       },
     ],
   };
@@ -1129,7 +1360,8 @@ export async function updateDeathSaves(
 interface UpdateCurrencyParams {
   characterId: number;
   currency: "cp" | "sp" | "ep" | "gp" | "pp";
-  amount: number;
+  amount?: number;
+  delta?: number;
 }
 
 export async function updateCurrency(
@@ -1148,9 +1380,83 @@ export async function updateCurrency(
     };
   }
 
+  if (params.amount === undefined && params.delta === undefined) {
+    return {
+      content: [{ type: "text", text: "Either amount or delta must be provided." }],
+    };
+  }
+
+  let finalAmount: number;
+  let description: string;
+
+  if (params.delta !== undefined) {
+    // Delta mode: fetch current currency and add/subtract
+    const character = await client.get<DdbCharacter>(
+      ENDPOINTS.character.get(params.characterId),
+      `character:${params.characterId}`,
+      60_000
+    );
+    const current = character.currencies[params.currency];
+    finalAmount = Math.max(0, current + params.delta);
+
+    if (params.delta > 0) {
+      description = `Added ${params.delta} ${params.currency.toUpperCase()} (${current} → ${finalAmount})`;
+    } else {
+      description = `Spent ${Math.abs(params.delta)} ${params.currency.toUpperCase()} (${current} → ${finalAmount})`;
+    }
+  } else {
+    finalAmount = params.amount!;
+    description = `Set ${params.currency.toUpperCase()} to ${finalAmount}`;
+  }
+
   await client.put(
     ENDPOINTS.character.updateCurrency(params.characterId),
-    { [params.currency]: params.amount },
+    { [params.currency]: finalAmount },
+    [`character:${params.characterId}`]
+  );
+
+  return {
+    content: [{ type: "text", text: `${description}.` }],
+  };
+}
+
+interface UpdatePactMagicParams {
+  characterId: number;
+  used: number;
+}
+
+interface LongRestParams {
+  characterId: number;
+}
+
+interface ShortRestParams {
+  characterId: number;
+}
+
+interface UseAbilityParams {
+  characterId: number;
+  abilityName: string;
+  uses?: number;
+}
+
+export async function updatePactMagic(
+  client: DdbClient,
+  params: UpdatePactMagicParams
+): Promise<{ content: Array<{ type: "text"; text: string }> }> {
+  if (params.used < 0) {
+    return {
+      content: [
+        {
+          type: "text",
+          text: "Used pact magic slots cannot be negative.",
+        },
+      ],
+    };
+  }
+
+  await client.put(
+    ENDPOINTS.character.updatePactMagic(params.characterId),
+    { used: params.used },
     [`character:${params.characterId}`]
   );
 
@@ -1158,16 +1464,271 @@ export async function updateCurrency(
     content: [
       {
         type: "text",
-        text: `Updated ${params.currency.toUpperCase()} to ${params.amount}.`,
+        text: `Updated pact magic slots to ${params.used} used.`,
       },
     ],
   };
 }
 
-interface UseAbilityParams {
+export async function longRest(
+  client: DdbClient,
+  params: LongRestParams
+): Promise<{ content: Array<{ type: "text"; text: string }> }> {
+  const character = await client.get<DdbCharacter>(
+    ENDPOINTS.character.get(params.characterId),
+    `character:${params.characterId}`,
+    60_000
+  );
+
+  const summary: string[] = [`Long rest completed for ${character.name}:`];
+  const maxHp = calculateMaxHp(character);
+
+  // Reset HP
+  await client.put(
+    ENDPOINTS.character.updateHp(params.characterId),
+    { removedHitPoints: 0, temporaryHitPoints: 0 },
+    [`character:${params.characterId}`]
+  );
+  summary.push(`\u2022 HP restored to full (${maxHp}/${maxHp})`);
+
+  // Reset spell slots (levels 1-9)
+  const FULL_CASTERS = ["Wizard", "Sorcerer", "Bard", "Cleric", "Druid"];
+  const HALF_CASTERS = ["Paladin", "Ranger", "Artificer"];
+  const hasSpellSlots = character.classes.some(cls =>
+    FULL_CASTERS.includes(cls.definition.name) || HALF_CASTERS.includes(cls.definition.name)
+  );
+  if (hasSpellSlots) {
+    for (let level = 1; level <= 9; level++) {
+      await client.put(
+        ENDPOINTS.character.updateSpellSlots(params.characterId),
+        { level, used: 0 },
+        [`character:${params.characterId}`]
+      );
+    }
+    summary.push("\u2022 Spell slots reset (levels 1-9)");
+  }
+
+  // Reset pact magic
+  const hasWarlock = character.classes.some(cls => cls.definition.name === "Warlock");
+  if (hasWarlock) {
+    await client.put(
+      ENDPOINTS.character.updatePactMagic(params.characterId),
+      { used: 0 },
+      [`character:${params.characterId}`]
+    );
+    summary.push("\u2022 Pact magic reset");
+  }
+
+  // Reset long-rest abilities
+  const longRestAbilities: string[] = [];
+  const actions = character.actions ?? {};
+  for (const list of Object.values(actions)) {
+    if (!Array.isArray(list)) continue;
+    for (const action of list) {
+      if (action.limitedUse && action.limitedUse.resetType === 1) {
+        await client.put(
+          ENDPOINTS.character.updateLimitedUse(),
+          {
+            characterId: params.characterId,
+            id: String(action.id),
+            entityTypeId: String(action.entityTypeId),
+            uses: 0,
+          },
+          [`character:${params.characterId}`]
+        );
+        longRestAbilities.push(action.name);
+      }
+    }
+  }
+  if (longRestAbilities.length > 0) {
+    summary.push(`\u2022 Long-rest abilities reset: ${longRestAbilities.join(", ")}`);
+  }
+
+  return {
+    content: [
+      {
+        type: "text",
+        text: summary.join("\n"),
+      },
+    ],
+  };
+}
+
+export async function shortRest(
+  client: DdbClient,
+  params: ShortRestParams
+): Promise<{ content: Array<{ type: "text"; text: string }> }> {
+  const character = await client.get<DdbCharacter>(
+    ENDPOINTS.character.get(params.characterId),
+    `character:${params.characterId}`,
+    60_000
+  );
+
+  const summary: string[] = [`Short rest completed for ${character.name}:`];
+
+  // Reset pact magic
+  const hasWarlock = character.classes.some(cls => cls.definition.name === "Warlock");
+  if (hasWarlock) {
+    await client.put(
+      ENDPOINTS.character.updatePactMagic(params.characterId),
+      { used: 0 },
+      [`character:${params.characterId}`]
+    );
+    summary.push("\u2022 Pact magic reset");
+  }
+
+  // Reset short-rest abilities
+  const shortRestAbilities: string[] = [];
+  const actions = character.actions ?? {};
+  for (const list of Object.values(actions)) {
+    if (!Array.isArray(list)) continue;
+    for (const action of list) {
+      if (action.limitedUse && action.limitedUse.resetType === 2) {
+        await client.put(
+          ENDPOINTS.character.updateLimitedUse(),
+          {
+            characterId: params.characterId,
+            id: String(action.id),
+            entityTypeId: String(action.entityTypeId),
+            uses: 0,
+          },
+          [`character:${params.characterId}`]
+        );
+        shortRestAbilities.push(action.name);
+      }
+    }
+  }
+  if (shortRestAbilities.length > 0) {
+    summary.push(`\u2022 Short-rest abilities reset: ${shortRestAbilities.join(", ")}`);
+  }
+
+  // Note about hit dice
+  summary.push("\u2022 Hit dice spending not available via API");
+
+  return {
+    content: [
+      {
+        type: "text",
+        text: summary.join("\n"),
+      },
+    ],
+  };
+}
+
+interface CastSpellParams {
   characterId: number;
-  abilityName: string;
-  uses?: number;
+  spellName: string;
+  level?: number;
+}
+
+export async function castSpell(
+  client: DdbClient,
+  params: CastSpellParams
+): Promise<{ content: Array<{ type: "text"; text: string }> }> {
+  if (!params.spellName || params.spellName.trim() === StringUtils.EMPTY) {
+    return {
+      content: [{ type: "text", text: "Spell name cannot be empty." }],
+    };
+  }
+
+  const character = await client.get<DdbCharacter>(
+    ENDPOINTS.character.get(params.characterId),
+    `character:${params.characterId}`,
+    60_000
+  );
+
+  // Find the spell in character's spell lists
+  const allSpells = getAllSpells(character);
+  const spellNameLower = params.spellName.toLowerCase();
+  const spell = allSpells.find(
+    (s) => s.definition.name.toLowerCase() === spellNameLower
+  );
+
+  if (!spell) {
+    // Try fuzzy match
+    const spellNames = allSpells.map(s => s.definition.name);
+    const matches = fuzzyMatch(params.spellName, spellNames, 3);
+    if (matches.length > 0) {
+      return {
+        content: [{
+          type: "text",
+          text: `Spell "${params.spellName}" not found. Did you mean: ${matches.join(", ")}?`,
+        }],
+      };
+    }
+    return {
+      content: [{ type: "text", text: `Spell "${params.spellName}" not found on this character.` }],
+    };
+  }
+
+  const spellLevel = params.level ?? spell.definition.level;
+
+  // Cantrips don't use spell slots
+  if (spellLevel === 0) {
+    return {
+      content: [{ type: "text", text: `Cast ${spell.definition.name} (cantrip) — no spell slot required.` }],
+    };
+  }
+
+  // Determine if warlock using pact magic
+  const isWarlock = character.classes.some(cls => cls.definition.name === "Warlock");
+  const hasPactMagic = character.pactMagic && character.pactMagic.available > 0;
+
+  if (isWarlock && hasPactMagic && spellLevel <= character.pactMagic!.level) {
+    // Use pact magic slot
+    const newUsed = character.pactMagic!.used + 1;
+    if (newUsed > character.pactMagic!.available) {
+      return {
+        content: [{ type: "text", text: `No pact magic slots remaining (${character.pactMagic!.used}/${character.pactMagic!.available} used).` }],
+      };
+    }
+    await client.put(
+      ENDPOINTS.character.updatePactMagic(params.characterId),
+      { used: newUsed },
+      [`character:${params.characterId}`]
+    );
+    return {
+      content: [{
+        type: "text",
+        text: `Cast ${spell.definition.name} using pact magic (level ${character.pactMagic!.level}). Pact slots: ${newUsed}/${character.pactMagic!.available} used.`,
+      }],
+    };
+  }
+
+  // Use regular spell slot
+  const slotData = character.spellSlots?.find(s => s.level === spellLevel);
+  if (slotData) {
+    const newUsed = slotData.used + 1;
+    if (newUsed > slotData.available) {
+      return {
+        content: [{ type: "text", text: `No level ${spellLevel} spell slots remaining (${slotData.used}/${slotData.available} used).` }],
+      };
+    }
+    await client.put(
+      ENDPOINTS.character.updateSpellSlots(params.characterId),
+      { level: spellLevel, used: newUsed },
+      [`character:${params.characterId}`]
+    );
+    return {
+      content: [{
+        type: "text",
+        text: `Cast ${spell.definition.name} at level ${spellLevel}. Level ${spellLevel} slots: ${newUsed}/${slotData.available} used.`,
+      }],
+    };
+  }
+
+  // No slot data available — just update the slot count
+  await client.put(
+    ENDPOINTS.character.updateSpellSlots(params.characterId),
+    { level: spellLevel, used: 1 },
+    [`character:${params.characterId}`]
+  );
+  return {
+    content: [{
+      type: "text",
+      text: `Cast ${spell.definition.name} at level ${spellLevel}. Updated level ${spellLevel} spell slot usage.`,
+    }],
+  };
 }
 
 export async function useAbility(
@@ -1187,29 +1748,44 @@ export async function useAbility(
     60_000
   );
 
-  // Search all action categories for matching ability (case-insensitive)
+  // Collect all actions into a flat list
   const actions = character.actions ?? {};
-  let foundAction: DdbAction | null = null;
-
+  const allActions: DdbAction[] = [];
   for (const list of Object.values(actions)) {
-    if (!Array.isArray(list)) continue;
-    const match = list.find(
-      (a) => a.name?.toLowerCase() === params.abilityName.toLowerCase()
-    );
-    if (match) {
-      foundAction = match;
-      break;
+    if (Array.isArray(list)) allActions.push(...list);
+  }
+
+  // Try exact match first (case-insensitive)
+  let foundAction: DdbAction | null = allActions.find(
+    (a) => a.name?.toLowerCase() === params.abilityName.toLowerCase()
+  ) ?? null;
+
+  // Fall back to fuzzy matching
+  if (!foundAction) {
+    const actionNames = allActions.filter(a => a.name).map(a => a.name);
+    const matches = fuzzyMatch(params.abilityName, actionNames, 3);
+
+    if (matches.length === 1) {
+      // Single close match — use it
+      foundAction = allActions.find(a => a.name === matches[0]) ?? null;
+    } else if (matches.length > 1) {
+      return {
+        content: [{
+          type: "text",
+          text: `Ability "${params.abilityName}" not found. Did you mean one of: ${matches.join(", ")}?`,
+        }],
+      };
     }
   }
 
   if (!foundAction) {
+    const actionNames = allActions.filter(a => a.name).map(a => a.name);
+    const available = actionNames.length > 0 ? `\nAvailable abilities: ${actionNames.join(", ")}` : "";
     return {
-      content: [
-        {
-          type: "text",
-          text: `Ability "${params.abilityName}" not found in character actions.`,
-        },
-      ],
+      content: [{
+        type: "text",
+        text: `Ability "${params.abilityName}" not found in character actions.${available}`,
+      }],
     };
   }
 

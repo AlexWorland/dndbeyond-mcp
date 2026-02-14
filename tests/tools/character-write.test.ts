@@ -291,7 +291,7 @@ describe("updateCurrency", () => {
       { gp: 150 },
       ["character:123"]
     );
-    expect(result.content[0].text).toContain("Updated GP to 150");
+    expect(result.content[0].text).toContain("Set GP to 150");
   });
 
   it("should update all currency types", async () => {
@@ -374,5 +374,60 @@ describe("useAbility", () => {
 
     expect(mockClient.put).not.toHaveBeenCalled();
     expect(result.content[0].text).toContain("Ability name cannot be empty");
+  });
+});
+
+describe("updateHp with temporary HP", () => {
+  let mockClient: DdbClient;
+
+  beforeEach(() => {
+    mockClient = {
+      get: vi.fn().mockResolvedValue(mockCharacter),
+      getRaw: vi.fn(),
+      put: vi.fn().mockResolvedValue({}),
+    } as unknown as DdbClient;
+  });
+
+  it("should include temporaryHitPoints in PUT body when tempHp is provided", async () => {
+    const result = await updateHp(mockClient, {
+      characterId: 123,
+      hpChange: 5,
+      tempHp: 10,
+    });
+
+    expect(mockClient.put).toHaveBeenCalledWith(
+      expect.stringContaining("/character/v5/character/123/life/hp/damage-taken"),
+      { removedHitPoints: 5, temporaryHitPoints: 10 },
+      ["character:123"]
+    );
+    expect(result.content[0].text).toContain("(10 temp HP)");
+  });
+
+  it("should not include temporaryHitPoints when tempHp is undefined", async () => {
+    await updateHp(mockClient, {
+      characterId: 123,
+      hpChange: 5,
+    });
+
+    expect(mockClient.put).toHaveBeenCalledWith(
+      expect.stringContaining("/character/v5/character/123/life/hp/damage-taken"),
+      { removedHitPoints: 5 },
+      ["character:123"]
+    );
+  });
+
+  it("should set temporaryHitPoints to 0 when tempHp is 0", async () => {
+    const result = await updateHp(mockClient, {
+      characterId: 123,
+      hpChange: 0,
+      tempHp: 0,
+    });
+
+    expect(mockClient.put).toHaveBeenCalledWith(
+      expect.anything(),
+      { removedHitPoints: 10, temporaryHitPoints: 0 },
+      ["character:123"]
+    );
+    expect(result.content[0].text).toContain("(0 temp HP)");
   });
 });

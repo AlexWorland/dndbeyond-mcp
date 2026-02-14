@@ -1,5 +1,5 @@
 import { DdbClient } from "../api/client.js";
-import { SpellSearchParams, MonsterSearchParams, ItemSearchParams, FeatSearchParams } from "../types/reference.js";
+import { SpellSearchParams, MonsterSearchParams, ItemSearchParams, FeatSearchParams, RaceSearchParams, BackgroundSearchParams } from "../types/reference.js";
 import { DdbCharacter, DdbSpell } from "../types/character.js";
 import { ENDPOINTS } from "../api/endpoints.js";
 
@@ -331,7 +331,9 @@ export async function searchMonsters(
   params: MonsterSearchParams
 ): Promise<ToolResult> {
   const searchTerm = params.name || "";
-  const url = ENDPOINTS.monster.search(searchTerm, 0, 20);
+  const page = params.page ?? 1;
+  const skip = (page - 1) * 20;
+  const url = ENDPOINTS.monster.search(searchTerm, skip, 20, params.showHomebrew);
   const cacheKey = `monsters:search:${JSON.stringify(params)}`;
 
   const response = await client.getRaw<MonsterServiceResponse>(url, cacheKey, 86_400_000);
@@ -374,15 +376,20 @@ export async function searchMonsters(
     };
   }
 
-  const lines = [`# Monster Search Results (${monsters.length} of ${response.pagination.total} total)\n`];
+  const pageStart = skip + 1;
+  const pageEnd = Math.min(skip + monsters.length, response.pagination.total);
+  const totalPages = Math.ceil(response.pagination.total / 20);
+  const lines = [`# Monster Search Results (showing ${pageStart}-${pageEnd} of ${response.pagination.total} total, Page ${page} of ${totalPages})\n`];
+
   for (const m of monsters) {
     const cr = crMap.get(m.challengeRatingId);
     const crStr = cr ? (cr.value < 1 ? `${cr.value}` : `${cr.value}`) : "?";
     const typeName = typeMap.get(m.typeId) ?? "Unknown";
     const sizeName = SIZE_MAP[m.sizeId] ?? "Unknown";
+    const homebrewTag = m.isHomebrew ? " [Homebrew]" : "";
 
     lines.push(
-      `- **${m.name}** — CR ${crStr}, ${sizeName} ${typeName}, AC ${m.armorClass}, ${m.averageHitPoints} HP${m.isLegendary ? " ★" : ""}`
+      `- **${m.name}**${homebrewTag} — CR ${crStr}, ${sizeName} ${typeName}, AC ${m.armorClass}, ${m.averageHitPoints} HP${m.isLegendary ? " ★" : ""}`
     );
   }
 
@@ -972,6 +979,106 @@ export async function searchClasses(
 
     const desc = stripHtml(cls.description || "").substring(0, 100);
     if (desc) lines.push(`  ${desc}${desc.length >= 100 ? "..." : ""}`);
+  }
+
+  return {
+    content: [{ type: "text", text: lines.join("\n") }],
+  };
+}
+
+// --- Race types ---
+
+interface DdbRace {
+  id: number;
+  name: string;
+  description: string;
+  isHomebrew: boolean;
+  sources: Array<{ sourceId: number }>;
+}
+
+/**
+ * Search for character races.
+ */
+export async function searchRaces(
+  client: DdbClient,
+  params: RaceSearchParams
+): Promise<ToolResult> {
+  const cacheKey = "game-data:races";
+  const races = await client.get<DdbRace[]>(
+    ENDPOINTS.gameData.races(),
+    cacheKey,
+    86_400_000,
+  );
+
+  let matched = races ?? [];
+
+  if (params.name) {
+    const searchName = params.name.toLowerCase();
+    matched = matched.filter((r) => r.name.toLowerCase().includes(searchName));
+  }
+
+  matched.sort((a, b) => a.name.localeCompare(b.name));
+
+  if (matched.length === 0) {
+    return {
+      content: [{ type: "text", text: "No races found matching the search criteria." }],
+    };
+  }
+
+  const lines = [`# Race Search Results (${matched.length} found)\n`];
+  for (const race of matched) {
+    const desc = stripHtml(race.description || "").substring(0, 100);
+    lines.push(`- **${race.name}** — ${desc}${desc.length >= 100 ? "..." : ""}`);
+  }
+
+  return {
+    content: [{ type: "text", text: lines.join("\n") }],
+  };
+}
+
+// --- Background types ---
+
+interface DdbBackground {
+  id: number;
+  name: string;
+  description: string;
+  isHomebrew: boolean;
+  sources: Array<{ sourceId: number }>;
+}
+
+/**
+ * Search for character backgrounds.
+ */
+export async function searchBackgrounds(
+  client: DdbClient,
+  params: BackgroundSearchParams
+): Promise<ToolResult> {
+  const cacheKey = "game-data:backgrounds";
+  const backgrounds = await client.get<DdbBackground[]>(
+    ENDPOINTS.gameData.backgrounds(),
+    cacheKey,
+    86_400_000,
+  );
+
+  let matched = backgrounds ?? [];
+
+  if (params.name) {
+    const searchName = params.name.toLowerCase();
+    matched = matched.filter((b) => b.name.toLowerCase().includes(searchName));
+  }
+
+  matched.sort((a, b) => a.name.localeCompare(b.name));
+
+  if (matched.length === 0) {
+    return {
+      content: [{ type: "text", text: "No backgrounds found matching the search criteria." }],
+    };
+  }
+
+  const lines = [`# Background Search Results (${matched.length} found)\n`];
+  for (const bg of matched) {
+    const desc = stripHtml(bg.description || "").substring(0, 100);
+    lines.push(`- **${bg.name}** — ${desc}${desc.length >= 100 ? "..." : ""}`);
   }
 
   return {

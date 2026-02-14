@@ -13,6 +13,8 @@ export interface MonsterSearchParams {
   type?: string;
   size?: string;
   environment?: string;
+  page?: number;
+  showHomebrew?: boolean;
 }
 
 export interface ItemSearchParams {
@@ -25,4 +27,12 @@ export interface ItemSearchParams {
 export interface FeatSearchParams {
   name?: string;
   prerequisite?: string;
+}
+
+export interface RaceSearchParams {
+  name?: string;
+}
+
+export interface BackgroundSearchParams {
+  name?: string;
 }

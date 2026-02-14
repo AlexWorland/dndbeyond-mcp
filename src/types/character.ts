@@ -28,6 +28,18 @@ export interface DdbCharacter {
   campaign: { id: number; name: string } | null;
   feats: DdbFeat[];
   notes: DdbNotes;
+  level?: number;
+  pactMagic?: {
+    level: number;
+    used: number;
+    available: number;
+  } | null;
+  spellSlots?: Array<{
+    level: number;
+    used: number;
+    available: number;
+  }>;
+  hitDiceUsed?: number;
 }
 
 export interface DdbRace {
@@ -122,6 +134,8 @@ export interface DdbInventoryItem {
     weight: number;
     cost: number | null;
     isHomebrew: boolean;
+    armorClass?: number | null;
+    filterType?: string;
   };
   equipped: boolean;
   quantity: number;

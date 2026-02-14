@@ -18,6 +18,10 @@ import {
   updateSpellSlots,
   updateDeathSaves,
   updateCurrency,
+  updatePactMagic,
+  longRest,
+  shortRest,
+  castSpell,
   useAbility,
 } from "./tools/character.js";
 import { listCampaigns, getCampaignCharacters } from "./tools/campaign.js";
@@ -31,6 +35,8 @@ import {
   searchFeats,
   getCondition,
   searchClasses,
+  searchRaces,
+  searchBackgrounds,
 } from "./tools/reference.js";
 
 export async function startServer(): Promise<void> {
@@ -163,17 +169,22 @@ export async function startServer(): Promise<void> {
   // Register character write tools
   server.tool(
     "update_hp",
-    "Update a character's hit points (positive = heal, negative = damage)",
+    "Update a character's hit points (positive = heal, negative = damage). Optionally set temporary HP.",
     {
       characterId: z.number().describe("The character ID"),
       hpChange: z
         .number()
         .describe("HP change (positive for healing, negative for damage)"),
+      tempHp: z
+        .number()
+        .optional()
+        .describe("Set temporary hit points to this value"),
     },
     async (params) =>
       updateHp(client, {
         characterId: params.characterId,
         hpChange: params.hpChange,
+        tempHp: params.tempHp,
       })
   );
 
@@ -213,19 +224,21 @@ export async function startServer(): Promise<void> {
 
   server.tool(
     "update_currency",
-    "Update a character's currency (cp, sp, ep, gp, pp)",
+    "Update a character's currency. Use 'delta' to add/spend (e.g., delta: 50 to add, delta: -10 to spend) or 'amount' to set an absolute value.",
     {
       characterId: z.number().describe("The character ID"),
       currency: z
         .enum(["cp", "sp", "ep", "gp", "pp"])
         .describe("Currency type: cp, sp, ep, gp, or pp"),
-      amount: z.number().describe("New currency amount"),
+      amount: z.number().optional().describe("Set currency to this exact amount"),
+      delta: z.number().optional().describe("Add (positive) or spend (negative) this many coins"),
     },
     async (params) =>
       updateCurrency(client, {
         characterId: params.characterId,
         currency: params.currency,
         amount: params.amount,
+        delta: params.delta,
       })
   );
 
@@ -251,6 +264,63 @@ export async function startServer(): Promise<void> {
         characterId: params.characterId,
         abilityName: params.abilityName,
         uses: params.uses,
+      })
+  );
+
+  server.tool(
+    "update_pact_magic",
+    "Update used pact magic slots for a Warlock",
+    {
+      characterId: z.number().describe("The character ID"),
+      used: z.number().describe("Number of pact magic slots used"),
+    },
+    async (params) =>
+      updatePactMagic(client, {
+        characterId: params.characterId,
+        used: params.used,
+      })
+  );
+
+  server.tool(
+    "long_rest",
+    "Perform a long rest: restores HP to full, resets spell slots, pact magic, and long-rest abilities",
+    {
+      characterId: z.number().describe("The character ID"),
+    },
+    async (params) =>
+      longRest(client, {
+        characterId: params.characterId,
+      })
+  );
+
+  server.tool(
+    "short_rest",
+    "Perform a short rest: resets pact magic and short-rest abilities",
+    {
+      characterId: z.number().describe("The character ID"),
+    },
+    async (params) =>
+      shortRest(client, {
+        characterId: params.characterId,
+      })
+  );
+
+  server.tool(
+    "cast_spell",
+    "Cast a spell and automatically decrement the appropriate spell slot or pact magic slot. Supports upcasting.",
+    {
+      characterId: z.number().describe("The character ID"),
+      spellName: z.string().describe("Name of the spell to cast"),
+      level: z
+        .number()
+        .optional()
+        .describe("Cast at this level (for upcasting). Defaults to spell's base level."),
+    },
+    async (params) =>
+      castSpell(client, {
+        characterId: params.characterId,
+        spellName: params.spellName,
+        level: params.level,
       })
   );
 
@@ -311,7 +381,7 @@ export async function startServer(): Promise<void> {
   // Register reference tools - monsters
   server.tool(
     "search_monsters",
-    "Search for monsters by name, CR, type, or size",
+    "Search for monsters by name, CR, type, or size. Supports pagination and homebrew.",
     {
       name: z.string().optional().describe("Monster name (partial match)"),
       cr: z.number().optional().describe("Challenge Rating"),
@@ -323,6 +393,8 @@ export async function startServer(): Promise<void> {
         .string()
         .optional()
         .describe("Size (tiny, small, medium, large, huge, gargantuan)"),
+      page: z.number().optional().describe("Page number (default: 1, 20 results per page)"),
+      showHomebrew: z.boolean().optional().describe("Include homebrew monsters"),
     },
     async (params) =>
       searchMonsters(client, {
@@ -330,6 +402,8 @@ export async function startServer(): Promise<void> {
         cr: params.cr,
         type: params.type,
         size: params.size,
+        page: params.page,
+        showHomebrew: params.showHomebrew,
       })
   );
 
@@ -420,6 +494,32 @@ export async function startServer(): Promise<void> {
     async (params) =>
       searchClasses(client, {
         className: params.className,
+      })
+  );
+
+  // Register reference tools - races
+  server.tool(
+    "search_races",
+    "Search for character races by name",
+    {
+      name: z.string().optional().describe("Race name (partial match)"),
+    },
+    async (params) =>
+      searchRaces(client, {
+        name: params.name,
+      })
+  );
+
+  // Register reference tools - backgrounds
+  server.tool(
+    "search_backgrounds",
+    "Search for character backgrounds by name",
+    {
+      name: z.string().optional().describe("Background name (partial match)"),
+    },
+    async (params) =>
+      searchBackgrounds(client, {
+        name: params.name,
       })
   );
 
