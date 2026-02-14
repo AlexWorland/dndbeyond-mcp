@@ -7,6 +7,19 @@
   "bin": {
     "dndbeyond-mcp": "build/index.js"
   },
+  "files": [
+    "build",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "mcp",
+    "dnd",
+    "dndbeyond",
+    "d&d",
+    "dungeons-and-dragons",
+    "model-context-protocol"
+  ],
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",

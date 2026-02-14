@@ -4,6 +4,7 @@ import { DdbCharacter, DdbSpell } from "../types/character.js";
 import { ENDPOINTS } from "../api/endpoints.js";
 
 interface ToolResult {
+  [key: string]: unknown;
   content: Array<{ type: "text"; text: string }>;
 }
 

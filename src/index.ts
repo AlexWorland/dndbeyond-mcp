@@ -1,2 +1,7 @@
 #!/usr/bin/env node
-console.error("dndbeyond-mcp: server starting...");
+import { startServer } from "./server.js";
+
+startServer().catch((error) => {
+  console.error("dndbeyond-mcp: fatal error:", error);
+  process.exit(1);
+});

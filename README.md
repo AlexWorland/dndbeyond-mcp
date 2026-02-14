@@ -14,30 +14,47 @@ A TypeScript MCP (Model Context Protocol) server for D&D Beyond. Gives Claude (a
 
 ## Installation
 
+You can run this server without installing via `npx`:
+
+```bash
+npx dndbeyond-mcp
+```
+
+Or install globally:
+
 ```bash
 npm install -g dndbeyond-mcp
 ```
 
 ## Setup
 
+Before using the server, authenticate with D&D Beyond:
+
 ```bash
 npx dndbeyond-mcp setup
 ```
 
-This opens a browser window where you log into D&D Beyond normally. The server captures your session cookie automatically.
+This opens a browser window where you log into D&D Beyond normally. The server captures your session cookie automatically and saves it to `~/.dndbeyond-mcp/config.json`.
 
 ## Claude Desktop Configuration
+
+Add this to your Claude Desktop configuration file:
+
+**macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
+**Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
 
 ```json
 {
   "mcpServers": {
     "dndbeyond": {
       "command": "npx",
-      "args": ["dndbeyond-mcp"]
+      "args": ["-y", "dndbeyond-mcp"]
     }
   }
 }
 ```
+
+After adding the configuration, restart Claude Desktop.
 
 ## Tools
 

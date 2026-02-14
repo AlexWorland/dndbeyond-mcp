@@ -3,6 +3,7 @@ import { isAuthenticated } from "../api/auth.js";
 import type { DdbClient } from "../api/client.js";
 
 interface CallToolResult {
+  [key: string]: unknown;
   content: Array<{ type: "text"; text: string }>;
 }
 
