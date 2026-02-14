@@ -7,7 +7,7 @@ export async function runAuthFlow(): Promise<void> {
   console.error("Opening browser for D&D Beyond login...");
   console.error("Please log in normally. The browser will close when authentication is detected.");
 
-  const browser = await chromium.launch({ headless: false });
+  const browser = await chromium.launch({ headless: false, channel: "chrome" });
   const context = await browser.newContext();
   const page = await context.newPage();
 

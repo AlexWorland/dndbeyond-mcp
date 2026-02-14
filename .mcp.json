@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "dndbeyond": {
+      "command": "node",
+      "args": ["build/src/index.js"],
+      "cwd": "/Users/aworland/projects/dndbeyond-mcp"
+    }
+  }
+}
