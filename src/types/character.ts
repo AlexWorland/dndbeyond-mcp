@@ -25,6 +25,7 @@ export interface DdbCharacter {
   preferences: Record<string, unknown>;
   configuration: Record<string, unknown>;
   actions: Record<string, DdbAction[]>;
+  modifiers: Record<string, DdbModifier[]>;
   campaign: { id: number; name: string } | null;
 }
 
@@ -129,6 +130,17 @@ export interface DdbAction {
   componentId: number;
   componentTypeId: number;
   limitedUse: DdbLimitedUse | null;
+}
+
+export interface DdbModifier {
+  id: string | number;
+  type: string;
+  subType: string;
+  value: number | null;
+  friendlyTypeName: string;
+  friendlySubtypeName: string;
+  componentId: number;
+  componentTypeId: number;
 }
 
 export interface CharacterSummary {

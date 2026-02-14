@@ -1,6 +1,6 @@
 import type { DdbClient } from "../api/client.js";
 import { ENDPOINTS } from "../api/endpoints.js";
-import type { DdbCharacter, DdbAbilityScore, DdbAction } from "../types/character.js";
+import type { DdbCharacter, DdbAbilityScore, DdbAction, DdbModifier } from "../types/character.js";
 import type { DdbCampaignResponse } from "../types/api.js";
 
 interface GetCharacterParams {
@@ -10,15 +10,42 @@ interface GetCharacterParams {
 
 const ABILITY_NAMES = ["STR", "DEX", "CON", "INT", "WIS", "CHA"];
 
+// Maps stat ID (1-6) to the subType prefix used in D&D Beyond modifiers
+const ABILITY_SUBTYPE_MAP: Record<number, string> = {
+  1: "strength-score",
+  2: "dexterity-score",
+  3: "constitution-score",
+  4: "intelligence-score",
+  5: "wisdom-score",
+  6: "charisma-score",
+};
+
 function calculateAbilityModifier(score: number): string {
   const modifier = Math.floor((score - 10) / 2);
   return modifier >= 0 ? `+${modifier}` : `${modifier}`;
+}
+
+function sumModifierBonuses(
+  modifiers: Record<string, DdbModifier[]>,
+  subType: string
+): number {
+  let total = 0;
+  for (const list of Object.values(modifiers)) {
+    if (!Array.isArray(list)) continue;
+    for (const mod of list) {
+      if (mod.type === "bonus" && mod.subType === subType && mod.value != null) {
+        total += mod.value;
+      }
+    }
+  }
+  return total;
 }
 
 function computeFinalAbilityScore(
   base: DdbAbilityScore[],
   bonus: DdbAbilityScore[],
   override: DdbAbilityScore[],
+  modifiers: Record<string, DdbModifier[]>,
   id: number
 ): number {
   const overrideValue = override.find((s) => s.id === id)?.value;
@@ -26,13 +53,14 @@ function computeFinalAbilityScore(
 
   const baseValue = base.find((s) => s.id === id)?.value ?? 10;
   const bonusValue = bonus.find((s) => s.id === id)?.value ?? 0;
-  return baseValue + bonusValue;
+  const modifierBonus = sumModifierBonuses(modifiers, ABILITY_SUBTYPE_MAP[id] ?? "");
+  return baseValue + bonusValue + modifierBonus;
 }
 
 function formatAbilityScores(char: DdbCharacter): string {
   return ABILITY_NAMES.map((name, idx) => {
     const id = idx + 1;
-    const score = computeFinalAbilityScore(char.stats, char.bonusStats, char.overrideStats, id);
+    const score = computeFinalAbilityScore(char.stats, char.bonusStats, char.overrideStats, char.modifiers, id);
     const modifier = calculateAbilityModifier(score);
     return `${name}: ${score} (${modifier})`;
   }).join(" | ");
@@ -68,7 +96,7 @@ function formatHp(char: DdbCharacter): string {
 }
 
 function calculateAc(char: DdbCharacter): number {
-  const dexMod = Math.floor((computeFinalAbilityScore(char.stats, char.bonusStats, char.overrideStats, 2) - 10) / 2);
+  const dexMod = Math.floor((computeFinalAbilityScore(char.stats, char.bonusStats, char.overrideStats, char.modifiers, 2) - 10) / 2);
   return 10 + dexMod;
 }
 
