@@ -2,7 +2,7 @@ import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mc
 import type { DdbClient } from "../api/client.js";
 import { ENDPOINTS } from "../api/endpoints.js";
 import type { DdbCharacter, DdbAbilityScore } from "../types/character.js";
-import type { DdbCampaignResponse } from "../types/api.js";
+import type { DdbCampaign } from "../types/api.js";
 
 const ABILITY_NAMES = ["STR", "DEX", "CON", "INT", "WIS", "CHA"];
 
@@ -165,13 +165,13 @@ export function registerCharacterResources(server: McpServer, client: DdbClient)
       mimeType: "text/plain",
     },
     async () => {
-      const campaignsResponse = await client.get<DdbCampaignResponse>(
+      const campaignsResponse = await client.get<DdbCampaign[]>(
         ENDPOINTS.campaign.list(),
         "campaigns",
         300_000
       );
 
-      const allCharacters = campaignsResponse.data.flatMap((campaign) =>
+      const allCharacters = campaignsResponse.flatMap((campaign) =>
         campaign.characters.map((char) => ({
           id: char.characterId,
           name: char.characterName,

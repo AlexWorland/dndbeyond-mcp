@@ -33,7 +33,7 @@ import {
   searchClasses,
 } from "./tools/reference.js";
 import { ENDPOINTS } from "./api/endpoints.js";
-import type { DdbCampaignResponse } from "./types/api.js";
+import type { DdbCampaign } from "./types/api.js";
 
 export async function startServer(): Promise<void> {
   // Initialize cache instances
@@ -292,12 +292,12 @@ export async function startServer(): Promise<void> {
     },
     async (params) => {
       // Get character IDs for searching spells
-      const campaignsResponse = await client.get<DdbCampaignResponse>(
+      const campaignsResponse = await client.get<DdbCampaign[]>(
         ENDPOINTS.campaign.list(),
         "campaigns",
         300_000
       );
-      const characterIds = campaignsResponse.data.flatMap((campaign) =>
+      const characterIds = campaignsResponse.flatMap((campaign) =>
         campaign.characters.map((char) => char.characterId)
       );
 
@@ -323,12 +323,12 @@ export async function startServer(): Promise<void> {
     },
     async (params) => {
       // Get character IDs for searching spells
-      const campaignsResponse = await client.get<DdbCampaignResponse>(
+      const campaignsResponse = await client.get<DdbCampaign[]>(
         ENDPOINTS.campaign.list(),
         "campaigns",
         300_000
       );
-      const characterIds = campaignsResponse.data.flatMap((campaign) =>
+      const characterIds = campaignsResponse.flatMap((campaign) =>
         campaign.characters.map((char) => char.characterId)
       );
 

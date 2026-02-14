@@ -11,7 +11,7 @@ import type {
   DdbRacialTrait,
   DdbInventoryItem,
 } from "../types/character.js";
-import type { DdbCampaignResponse } from "../types/api.js";
+import type { DdbCampaign } from "../types/api.js";
 
 interface GetCharacterParams {
   characterId?: number;
@@ -774,13 +774,13 @@ function formatCharacter(char: DdbCharacter): string {
 }
 
 async function findCharacterByName(client: DdbClient, name: string): Promise<number | null> {
-  const campaignsResponse = await client.get<DdbCampaignResponse>(
+  const campaignsResponse = await client.get<DdbCampaign[]>(
     ENDPOINTS.campaign.list(),
     "campaigns",
     300_000
   );
 
-  const allCharacters = campaignsResponse.data.flatMap((campaign) =>
+  const allCharacters = campaignsResponse.flatMap((campaign) =>
     campaign.characters.map((char) => ({
       id: char.characterId,
       name: char.characterName,
@@ -845,13 +845,13 @@ export async function getCharacter(
 export async function listCharacters(
   client: DdbClient
 ): Promise<{ content: Array<{ type: "text"; text: string }> }> {
-  const campaignsResponse = await client.get<DdbCampaignResponse>(
+  const campaignsResponse = await client.get<DdbCampaign[]>(
     ENDPOINTS.campaign.list(),
     "campaigns",
     300_000
   );
 
-  const allCharacters = campaignsResponse.data.flatMap((campaign) =>
+  const allCharacters = campaignsResponse.flatMap((campaign) =>
     campaign.characters.map((char) => ({
       id: char.characterId,
       name: char.characterName,

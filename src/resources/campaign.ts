@@ -1,7 +1,7 @@
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { DdbClient } from "../api/client.js";
 import { ENDPOINTS } from "../api/endpoints.js";
-import type { DdbCampaignResponse } from "../types/api.js";
+import type { DdbCampaign } from "../types/api.js";
 
 const CAMPAIGN_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
@@ -15,13 +15,13 @@ export function registerCampaignResources(server: McpServer, client: DdbClient) 
       mimeType: "text/plain",
     },
     async () => {
-      const response = await client.get<DdbCampaignResponse>(
+      const campaigns = await client.get<DdbCampaign[]>(
         ENDPOINTS.campaign.list(),
         "campaigns",
         CAMPAIGN_CACHE_TTL
       );
 
-      if (!response.data || response.data.length === 0) {
+      if (!campaigns || campaigns.length === 0) {
         return {
           contents: [
             {
@@ -34,7 +34,7 @@ export function registerCampaignResources(server: McpServer, client: DdbClient) 
       }
 
       const lines = ["Active Campaigns:", ""];
-      for (const campaign of response.data) {
+      for (const campaign of campaigns) {
         const playerCount = campaign.characters.length;
         lines.push(
           `• ${campaign.name} (ID: ${campaign.id}, DM: ${campaign.dmUsername}, ${playerCount} player${playerCount !== 1 ? "s" : ""})`
@@ -71,13 +71,13 @@ export function registerCampaignResources(server: McpServer, client: DdbClient) 
 
       const campaignId = parseInt(match[1], 10);
 
-      const response = await client.get<DdbCampaignResponse>(
+      const campaigns = await client.get<DdbCampaign[]>(
         ENDPOINTS.campaign.list(),
         `campaign:${campaignId}:characters`,
         CAMPAIGN_CACHE_TTL
       );
 
-      const campaign = response.data.find((c) => c.id === campaignId);
+      const campaign = campaigns.find((c) => c.id === campaignId);
       if (!campaign) {
         return {
           contents: [
