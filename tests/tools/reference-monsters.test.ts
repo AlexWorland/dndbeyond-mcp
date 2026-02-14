@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { searchMonsters, getMonster } from "../../src/tools/reference-extended.js";
+import { searchMonsters, getMonster } from "../../src/tools/reference.js";
 import { DdbClient } from "../../src/api/client.js";
 import { MonsterSearchParams } from "../../src/types/reference.js";
 

@@ -269,3 +269,225 @@ export async function listCharacters(
 class StringUtils {
   static readonly EMPTY = "";
 }
+
+// ============================================================================
+// WRITE OPERATIONS
+// ============================================================================
+
+interface UpdateHpParams {
+  characterId: number;
+  hpChange: number;
+}
+
+export async function updateHp(
+  client: DdbClient,
+  params: UpdateHpParams
+): Promise<{ content: Array<{ type: "text"; text: string }> }> {
+  const character = await client.get<DdbCharacter>(
+    ENDPOINTS.character.get(params.characterId),
+    `character:${params.characterId}`,
+    60_000
+  );
+
+  const newRemovedHp = Math.max(
+    0,
+    Math.min(
+      calculateMaxHp(character),
+      character.removedHitPoints - params.hpChange
+    )
+  );
+
+  await client.put(
+    ENDPOINTS.character.updateHp(params.characterId),
+    { removedHitPoints: newRemovedHp },
+    [`character:${params.characterId}`]
+  );
+
+  const action = params.hpChange > 0 ? "Healed" : "Damaged";
+  const amount = Math.abs(params.hpChange);
+  const newCurrent = calculateMaxHp(character) - newRemovedHp;
+
+  return {
+    content: [
+      {
+        type: "text",
+        text: `${action} ${character.name} for ${amount} HP. Current HP: ${newCurrent}/${calculateMaxHp(character)}`,
+      },
+    ],
+  };
+}
+
+interface UpdateSpellSlotsParams {
+  characterId: number;
+  level: number;
+  used: number;
+}
+
+export async function updateSpellSlots(
+  client: DdbClient,
+  params: UpdateSpellSlotsParams
+): Promise<{ content: Array<{ type: "text"; text: string }> }> {
+  if (params.level < 1 || params.level > 9) {
+    return {
+      content: [
+        {
+          type: "text",
+          text: "Spell slot level must be between 1 and 9.",
+        },
+      ],
+    };
+  }
+
+  if (params.used < 0) {
+    return {
+      content: [
+        {
+          type: "text",
+          text: "Used spell slots cannot be negative.",
+        },
+      ],
+    };
+  }
+
+  await client.put(
+    ENDPOINTS.character.updateSpellSlots(params.characterId),
+    { level: params.level, used: params.used },
+    [`character:${params.characterId}`]
+  );
+
+  return {
+    content: [
+      {
+        type: "text",
+        text: `Updated level ${params.level} spell slots to ${params.used} used.`,
+      },
+    ],
+  };
+}
+
+interface UpdateDeathSavesParams {
+  characterId: number;
+  type: "success" | "failure";
+  count: number;
+}
+
+export async function updateDeathSaves(
+  client: DdbClient,
+  params: UpdateDeathSavesParams
+): Promise<{ content: Array<{ type: "text"; text: string }> }> {
+  if (!["success", "failure"].includes(params.type)) {
+    return {
+      content: [
+        {
+          type: "text",
+          text: "Death save type must be 'success' or 'failure'.",
+        },
+      ],
+    };
+  }
+
+  if (params.count < 0 || params.count > 3) {
+    return {
+      content: [
+        {
+          type: "text",
+          text: "Death save count must be between 0 and 3.",
+        },
+      ],
+    };
+  }
+
+  const body =
+    params.type === "success"
+      ? { successCount: params.count }
+      : { failCount: params.count };
+
+  await client.put(
+    ENDPOINTS.character.updateDeathSaves(params.characterId),
+    body,
+    [`character:${params.characterId}`]
+  );
+
+  return {
+    content: [
+      {
+        type: "text",
+        text: `Updated death saves: ${params.count} ${params.type}${params.count === 1 ? StringUtils.EMPTY : "es"}.`,
+      },
+    ],
+  };
+}
+
+interface UpdateCurrencyParams {
+  characterId: number;
+  currency: "cp" | "sp" | "ep" | "gp" | "pp";
+  amount: number;
+}
+
+export async function updateCurrency(
+  client: DdbClient,
+  params: UpdateCurrencyParams
+): Promise<{ content: Array<{ type: "text"; text: string }> }> {
+  const validCurrencies = ["cp", "sp", "ep", "gp", "pp"];
+  if (!validCurrencies.includes(params.currency)) {
+    return {
+      content: [
+        {
+          type: "text",
+          text: "Currency must be one of: cp, sp, ep, gp, pp.",
+        },
+      ],
+    };
+  }
+
+  await client.put(
+    ENDPOINTS.character.updateCurrency(params.characterId),
+    { [params.currency]: params.amount },
+    [`character:${params.characterId}`]
+  );
+
+  return {
+    content: [
+      {
+        type: "text",
+        text: `Updated ${params.currency.toUpperCase()} to ${params.amount}.`,
+      },
+    ],
+  };
+}
+
+interface UseAbilityParams {
+  characterId: number;
+  abilityName: string;
+}
+
+export async function useAbility(
+  client: DdbClient,
+  params: UseAbilityParams
+): Promise<{ content: Array<{ type: "text"; text: string }> }> {
+  if (!params.abilityName || params.abilityName.trim() === StringUtils.EMPTY) {
+    return {
+      content: [
+        {
+          type: "text",
+          text: "Ability name cannot be empty.",
+        },
+      ],
+    };
+  }
+
+  await client.put(
+    ENDPOINTS.character.updateLimitedUse(params.characterId),
+    { abilityName: params.abilityName },
+    [`character:${params.characterId}`]
+  );
+
+  return {
+    content: [
+      {
+        type: "text",
+        text: `Used ability: ${params.abilityName}`,
+      },
+    ],
+  };
+}

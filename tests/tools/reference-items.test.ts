@@ -5,7 +5,7 @@ import {
   searchFeats,
   getCondition,
   searchClasses,
-} from "../../src/tools/reference-extended.js";
+} from "../../src/tools/reference.js";
 import { DdbClient } from "../../src/api/client.js";
 import { ItemSearchParams, FeatSearchParams } from "../../src/types/reference.js";
 
