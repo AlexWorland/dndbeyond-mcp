@@ -173,15 +173,26 @@ export async function startServer(): Promise<void> {
 
   server.tool(
     "use_ability",
-    "Mark a limited-use ability as used (e.g., Ki Points, Rage, Channel Divinity)",
+    "Update uses of a limited-use ability (e.g., Favored Enemy, Dreadful Strike, Ki Points). Increments by 1 if 'uses' is not specified, or set exact count with 'uses'. Set uses to 0 to reset.",
     {
       characterId: z.number().describe("The character ID"),
-      abilityName: z.string().describe("Name of the ability to use"),
+      abilityName: z
+        .string()
+        .describe(
+          "Name of the ability (e.g., 'Hunter's Mark', 'Dreadful Strike')"
+        ),
+      uses: z
+        .number()
+        .optional()
+        .describe(
+          "Set exact number of uses expended. If omitted, increments current uses by 1."
+        ),
     },
     async (params) =>
       useAbility(client, {
         characterId: params.characterId,
         abilityName: params.abilityName,
+        uses: params.uses,
       })
   );
 

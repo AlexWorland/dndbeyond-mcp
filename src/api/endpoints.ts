@@ -8,7 +8,7 @@ export const ENDPOINTS = {
     updateHp: (id: number) => `${DDB_CHARACTER_SERVICE}/character/v5/character/${id}/life/hp/damage-taken`,
     updateSpellSlots: (id: number) => `${DDB_CHARACTER_SERVICE}/character/v5/character/${id}/spell/slots`,
     updateDeathSaves: (id: number) => `${DDB_CHARACTER_SERVICE}/character/v5/character/${id}/life/death-saves`,
-    updateLimitedUse: (id: number) => `${DDB_CHARACTER_SERVICE}/character/v5/character/${id}/action/limited-use`,
+    updateLimitedUse: () => `${DDB_CHARACTER_SERVICE}/character/v5/action/limited-use`,
     updateCurrency: (id: number) => `${DDB_CHARACTER_SERVICE}/character/v5/character/${id}/inventory/currency`,
     updatePactMagic: (id: number) => `${DDB_CHARACTER_SERVICE}/character/v5/character/${id}/spell/pact-magic`,
   },

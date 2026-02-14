@@ -24,6 +24,7 @@ export interface DdbCharacter {
   traits: DdbTraits;
   preferences: Record<string, unknown>;
   configuration: Record<string, unknown>;
+  actions: Record<string, DdbAction[]>;
   campaign: { id: number; name: string } | null;
 }
 
@@ -112,6 +113,22 @@ export interface DdbTraits {
   bonds: string | null;
   flaws: string | null;
   appearance: string | null;
+}
+
+export interface DdbLimitedUse {
+  maxUses: number;
+  numberUsed: number;
+  resetType: number; // 1 = Long Rest, 2 = Short Rest
+  resetTypeDescription: string;
+}
+
+export interface DdbAction {
+  id: number;
+  entityTypeId: number;
+  name: string;
+  componentId: number;
+  componentTypeId: number;
+  limitedUse: DdbLimitedUse | null;
 }
 
 export interface CharacterSummary {

@@ -1,6 +1,6 @@
 import type { DdbClient } from "../api/client.js";
 import { ENDPOINTS } from "../api/endpoints.js";
-import type { DdbCharacter, DdbAbilityScore } from "../types/character.js";
+import type { DdbCharacter, DdbAbilityScore, DdbAction } from "../types/character.js";
 import type { DdbCampaignResponse } from "../types/api.js";
 
 interface GetCharacterParams {
@@ -459,6 +459,7 @@ export async function updateCurrency(
 interface UseAbilityParams {
   characterId: number;
   abilityName: string;
+  uses?: number;
 }
 
 export async function useAbility(
@@ -467,18 +468,78 @@ export async function useAbility(
 ): Promise<{ content: Array<{ type: "text"; text: string }> }> {
   if (!params.abilityName || params.abilityName.trim() === StringUtils.EMPTY) {
     return {
+      content: [{ type: "text", text: "Ability name cannot be empty." }],
+    };
+  }
+
+  // Fetch character data to find the action's id and entityTypeId
+  const character = await client.get<DdbCharacter>(
+    ENDPOINTS.character.get(params.characterId),
+    `character:${params.characterId}`,
+    60_000
+  );
+
+  // Search all action categories for matching ability (case-insensitive)
+  const actions = character.actions ?? {};
+  let foundAction: DdbAction | null = null;
+
+  for (const list of Object.values(actions)) {
+    if (!Array.isArray(list)) continue;
+    const match = list.find(
+      (a) => a.name?.toLowerCase() === params.abilityName.toLowerCase()
+    );
+    if (match) {
+      foundAction = match;
+      break;
+    }
+  }
+
+  if (!foundAction) {
+    return {
       content: [
         {
           type: "text",
-          text: "Ability name cannot be empty.",
+          text: `Ability "${params.abilityName}" not found in character actions.`,
         },
       ],
     };
   }
 
+  if (!foundAction.limitedUse) {
+    return {
+      content: [
+        {
+          type: "text",
+          text: `"${foundAction.name}" does not have limited uses.`,
+        },
+      ],
+    };
+  }
+
+  const currentUsed = foundAction.limitedUse.numberUsed;
+  const maxUses = foundAction.limitedUse.maxUses;
+  const newUses = params.uses ?? currentUsed + 1;
+
+  if (newUses < 0 || newUses > maxUses) {
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Uses must be between 0 and ${maxUses}. Currently ${currentUsed}/${maxUses} used.`,
+        },
+      ],
+    };
+  }
+
+  // D&D Beyond expects id and entityTypeId as strings, characterId in the body
   await client.put(
-    ENDPOINTS.character.updateLimitedUse(params.characterId),
-    { abilityName: params.abilityName },
+    ENDPOINTS.character.updateLimitedUse(),
+    {
+      characterId: params.characterId,
+      id: String(foundAction.id),
+      entityTypeId: String(foundAction.entityTypeId),
+      uses: newUses,
+    },
     [`character:${params.characterId}`]
   );
 
@@ -486,7 +547,7 @@ export async function useAbility(
     content: [
       {
         type: "text",
-        text: `Used ability: ${params.abilityName}`,
+        text: `${foundAction.name}: ${newUses}/${maxUses} uses expended.`,
       },
     ],
   };
