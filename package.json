@@ -3,9 +3,9 @@
   "version": "0.1.0",
   "description": "MCP server for D&D Beyond",
   "type": "module",
-  "main": "build/index.js",
+  "main": "build/src/index.js",
   "bin": {
-    "dndbeyond-mcp": "build/index.js"
+    "dndbeyond-mcp": "build/src/index.js"
   },
   "files": [
     "build",
@@ -23,7 +23,7 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "start": "node build/index.js",
+    "start": "node build/src/index.js",
     "setup": "node build/setup/auth-flow.js",
     "test": "vitest run",
     "test:watch": "vitest"
