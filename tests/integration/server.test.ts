@@ -102,8 +102,12 @@ describe("MCP Server Integration", () => {
   let clientTransport: InMemoryTransport;
 
   beforeEach(() => {
-    // Mock getCobaltSession to always return a valid session for tests
+    // Mock auth functions used by DdbClient.buildHeaders
     vi.spyOn(auth, "getCobaltSession").mockResolvedValue("mock-session-token");
+    vi.spyOn(auth, "getCobaltToken").mockResolvedValue("mock-bearer-token");
+    vi.spyOn(auth, "getAllCookies").mockResolvedValue([
+      { name: "CobaltSession", value: "mock-session" },
+    ]);
   });
 
   beforeAll(async () => {
@@ -201,8 +205,9 @@ describe("MCP Server Integration", () => {
   });
 
   it("should execute list_campaigns tool with mocked API", async () => {
-    // Mock successful API response
+    // Mock successful API response (status envelope for Waterdeep/campaign endpoints)
     const mockCampaigns = {
+      status: "success",
       data: [
         {
           id: 1,
@@ -243,8 +248,9 @@ describe("MCP Server Integration", () => {
   });
 
   it("should read a resource with mocked API", async () => {
-    // Mock successful API response for campaigns
+    // Mock successful API response for campaigns (status envelope)
     const mockCampaigns = {
+      status: "success",
       data: [
         {
           id: 1,

@@ -8,49 +8,140 @@ interface ToolResult {
   content: Array<{ type: "text"; text: string }>;
 }
 
-/**
- * Searches for spells matching the given parameters.
- * Since D&D Beyond doesn't have a dedicated spell search endpoint,
- * this implementation searches through all characters' spells.
- */
-export async function searchSpells(
-  client: DdbClient,
-  params: SpellSearchParams,
-  characterIds: number[]
-): Promise<ToolResult> {
-  const allSpells = new Map<number, DdbSpell>();
+// --- Game config / enum lookup tables ---
 
-  // Collect spells from all characters
-  for (const characterId of characterIds) {
+interface GameConfig {
+  challengeRatings: Array<{ id: number; value: number; xp: number; proficiencyBonus: number }>;
+  monsterTypes: Array<{ id: number; name: string }>;
+  environments: Array<{ id: number; name: string }>;
+  alignments: Array<{ id: number; name: string }>;
+  damageTypes: Array<{ id: number; name: string }>;
+  senses: Array<{ id: number; name: string }>;
+}
+
+const SIZE_MAP: Record<number, string> = {
+  2: "Tiny", 3: "Small", 4: "Medium", 5: "Large", 6: "Huge", 7: "Gargantuan",
+};
+
+const STAT_NAMES: Record<number, string> = {
+  1: "STR", 2: "DEX", 3: "CON", 4: "INT", 5: "WIS", 6: "CHA",
+};
+
+const MOVEMENT_NAMES: Record<number, string> = {
+  1: "walk", 2: "burrow", 3: "climb", 4: "fly", 5: "swim",
+};
+
+let cachedConfig: GameConfig | null = null;
+
+async function getGameConfig(client: DdbClient): Promise<GameConfig> {
+  if (cachedConfig) return cachedConfig;
+  cachedConfig = await client.getRaw<GameConfig>(
+    ENDPOINTS.config.json(),
+    "game-config",
+    86_400_000, // 24h
+  );
+  return cachedConfig;
+}
+
+// --- Monster service types ---
+
+interface MonsterServiceResponse {
+  accessType: Record<string, number>;
+  pagination: { take: number; skip: number; currentPage: number; pages: number; total: number };
+  data: DdbMonster[];
+}
+
+interface MonsterServiceSingleResponse {
+  accessType: number;
+  data: DdbMonster;
+}
+
+interface DdbMonster {
+  id: number;
+  name: string;
+  alignmentId: number;
+  sizeId: number;
+  typeId: number;
+  armorClass: number;
+  armorClassDescription: string;
+  averageHitPoints: number;
+  hitPointDice: { diceCount: number; diceValue: number; fixedValue: number; diceString: string };
+  passivePerception: number;
+  challengeRatingId: number;
+  isHomebrew: boolean;
+  isLegendary: boolean;
+  isMythic: boolean;
+  isLegacy: boolean;
+  url: string;
+  avatarUrl: string;
+  stats: Array<{ statId: number; value: number }>;
+  skills: Array<{ skillId: number; value: number }>;
+  senses: Array<{ senseId: number; notes: string }>;
+  savingThrows: Array<{ statId: number; bonusModifier: number }>;
+  movements: Array<{ movementId: number; speed: number; notes: string | null }>;
+  languages: Array<{ languageId: number; notes: string }>;
+  damageAdjustments: number[];
+  conditionImmunities: number[];
+  environments: number[];
+  specialTraitsDescription: string;
+  actionsDescription: string;
+  reactionsDescription: string;
+  legendaryActionsDescription: string;
+  mythicActionsDescription: string;
+  bonusActionsDescription: string;
+  lairDescription: string;
+  languageDescription: string;
+  languageNote: string;
+  sensesHtml: string;
+  skillsHtml: string;
+  conditionImmunitiesHtml: string;
+}
+
+// --- Spell compendium ---
+
+// Class IDs for building the full spell compendium
+const SPELLCASTING_CLASS_IDS = [1, 2, 3, 4, 5, 6, 7, 8]; // Bard through Wizard
+
+/**
+ * Loads the full spell compendium by querying always-known-spells for all classes.
+ * Deduplicates by spell definition ID.
+ */
+async function loadSpellCompendium(client: DdbClient): Promise<DdbSpell[]> {
+  const allSpells = new Map<string, DdbSpell>();
+
+  for (const classId of SPELLCASTING_CLASS_IDS) {
     try {
-      const character = await client.get<DdbCharacter>(
-        ENDPOINTS.character.get(characterId),
-        `character:${characterId}`,
-        300000 // 5 minutes
+      const spells = await client.get<DdbSpell[]>(
+        ENDPOINTS.gameData.alwaysKnownSpells(classId, 20),
+        `spell-compendium:class:${classId}`,
+        86_400_000, // 24h
       );
 
-      // Aggregate spells from all sources
-      const spellSources = [
-        character.spells.race,
-        character.spells.class,
-        character.spells.background,
-        character.spells.item,
-        character.spells.feat,
-      ];
-
-      for (const spells of spellSources) {
-        for (const spell of spells ?? []) {
-          allSpells.set(spell.id, spell);
+      for (const spell of spells ?? []) {
+        if (spell.definition?.name && !allSpells.has(spell.definition.name)) {
+          allSpells.set(spell.definition.name, spell);
         }
       }
-    } catch (error) {
-      // Continue collecting from other characters
+    } catch {
       continue;
     }
   }
 
-  // Filter spells based on search params
-  let matchedSpells = Array.from(allSpells.values());
+  return Array.from(allSpells.values());
+}
+
+/**
+ * Searches for spells matching the given parameters.
+ * Uses the full spell compendium from always-known-spells endpoints.
+ */
+export async function searchSpells(
+  client: DdbClient,
+  params: SpellSearchParams,
+  _characterIds?: number[]
+): Promise<ToolResult> {
+  const allSpells = await loadSpellCompendium(client);
+
+  let matchedSpells = allSpells;
 
   if (params.name) {
     const searchName = params.name.toLowerCase();
@@ -84,14 +175,19 @@ export async function searchSpells(
     );
   }
 
-  // Format results
+  // Sort by level then name
+  matchedSpells.sort((a, b) => {
+    if (a.definition.level !== b.definition.level) return a.definition.level - b.definition.level;
+    return a.definition.name.localeCompare(b.definition.name);
+  });
+
   if (matchedSpells.length === 0) {
     return {
       content: [{ type: "text", text: "No spells found matching the criteria." }],
     };
   }
 
-  const lines = ["# Spell Search Results\n"];
+  const lines = [`# Spell Search Results (${matchedSpells.length} found)\n`];
   for (const spell of matchedSpells) {
     const level = spell.definition.level === 0 ? "Cantrip" : `Level ${spell.definition.level}`;
     const tags = [];
@@ -115,71 +211,48 @@ export async function searchSpells(
 export async function getSpell(
   client: DdbClient,
   params: { spellName: string },
-  characterIds: number[]
+  _characterIds?: number[]
 ): Promise<ToolResult> {
   const searchName = params.spellName.toLowerCase();
+  const allSpells = await loadSpellCompendium(client);
 
-  // Search through all characters' spells
-  for (const characterId of characterIds) {
-    try {
-      const character = await client.get<DdbCharacter>(
-        ENDPOINTS.character.get(characterId),
-        `character:${characterId}`,
-        300000 // 5 minutes
-      );
-
-      const spellSources = [
-        character.spells.race,
-        character.spells.class,
-        character.spells.background,
-        character.spells.item,
-        character.spells.feat,
-      ];
-
-      for (const spells of spellSources) {
-        const spell = (spells ?? []).find(
-          (s) => s.definition.name.toLowerCase() === searchName
-        );
-        if (spell) {
-          return formatSpellDetails(spell);
-        }
-      }
-    } catch (error) {
-      // Continue searching in other characters
-      continue;
-    }
+  // Exact match first, then partial
+  let spell = allSpells.find(
+    (s) => s.definition.name.toLowerCase() === searchName
+  );
+  if (!spell) {
+    spell = allSpells.find(
+      (s) => s.definition.name.toLowerCase().includes(searchName)
+    );
   }
 
-  return {
-    content: [
-      {
-        type: "text",
-        text: `Spell "${params.spellName}" not found in any character's spell list.`,
-      },
-    ],
-  };
+  if (!spell) {
+    return {
+      content: [
+        { type: "text", text: `Spell "${params.spellName}" not found in the compendium.` },
+      ],
+    };
+  }
+
+  return formatSpellDetails(spell);
 }
 
 function formatSpellDetails(spell: DdbSpell): ToolResult {
   const def = spell.definition;
 
-  // Format level
   const level = def.level === 0 ? "Cantrip" : `${def.level}${getOrdinalSuffix(def.level)}-level`;
 
-  // Format components
   const componentMap = { 1: "V", 2: "S", 3: "M" };
   const components = (def.components ?? [])
     .map((c) => componentMap[c as keyof typeof componentMap])
     .filter(Boolean)
     .join(", ");
 
-  // Format casting time
   const ACTIVATION_TYPES: Record<number, string> = { 1: "Action", 3: "Bonus Action", 6: "Reaction" };
   const castingTime = def.activation
     ? `${def.activation.activationTime} ${ACTIVATION_TYPES[def.activation.activationType] ?? "Action"}`
     : "1 Action";
 
-  // Format range
   let range = "Self";
   if (def.range) {
     range = def.range.rangeValue && def.range.origin !== "Self"
@@ -190,7 +263,6 @@ function formatSpellDetails(spell: DdbSpell): ToolResult {
     }
   }
 
-  // Format duration
   let duration = "Instantaneous";
   if (def.duration) {
     const interval = def.duration.durationInterval;
@@ -202,7 +274,6 @@ function formatSpellDetails(spell: DdbSpell): ToolResult {
     }
   }
 
-  // Build tags
   const tags = [];
   if (def.concentration) tags.push("Concentration");
   if (def.ritual) tags.push("Ritual");
@@ -229,467 +300,681 @@ function getOrdinalSuffix(n: number): string {
   return s[(v - 20) % 10] || s[v] || s[0];
 }
 
-// Monster types
-interface Monster {
-  name: string;
-  size: string;
-  type: string;
-  alignment: string;
-  armorClass: number;
-  hitPoints: number;
-  speed: Record<string, number>;
-  abilityScores: {
-    strength: number;
-    dexterity: number;
-    constitution: number;
-    intelligence: number;
-    wisdom: number;
-    charisma: number;
-  };
-  skills?: Record<string, number>;
-  senses?: Record<string, string>;
-  languages?: string[];
-  challengeRating: number;
-  traits?: Array<{ name: string; description: string }>;
-  actions?: Array<{ name: string; description: string }>;
-  reactions?: Array<{ name: string; description: string }>;
-  legendaryActions?: Array<{ name: string; description: string }>;
-  environment?: string[];
+// --- Monster tools ---
+
+function stripHtml(html: string): string {
+  if (!html) return "";
+  return html
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n")
+    .replace(/<\/li>/gi, "\n")
+    .replace(/<li>/gi, "• ")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
-// Item types
-interface Item {
-  name: string;
-  type: string;
-  rarity: string;
-  requiresAttunement: boolean;
-  description: string;
-  properties?: string[];
-  weight?: number;
+function abilityMod(score: number): string {
+  const mod = Math.floor((score - 10) / 2);
+  return mod >= 0 ? `+${mod}` : `${mod}`;
 }
-
-// Feat types
-interface Feat {
-  name: string;
-  prerequisite?: string;
-  description: string;
-  effects?: string[];
-}
-
-// Condition types
-interface Condition {
-  name: string;
-  description: string;
-  effects?: string[];
-}
-
-// Class types
-interface CharacterClass {
-  name: string;
-  description: string;
-  hitDie: number;
-  primaryAbility: string[];
-  savingThrows: string[];
-  subclasses?: Array<{ name: string; description: string }>;
-}
-
-const REFERENCE_TTL = 86400000; // 24 hours in milliseconds
 
 /**
- * Search for monsters by name, CR, type, size.
+ * Search for monsters by name.
  */
 export async function searchMonsters(
   client: DdbClient,
   params: MonsterSearchParams
 ): Promise<ToolResult> {
+  const searchTerm = params.name || "";
+  const url = ENDPOINTS.monster.search(searchTerm, 0, 20);
   const cacheKey = `monsters:search:${JSON.stringify(params)}`;
 
-  // For now, return a placeholder since we don't have actual D&D Beyond endpoints
-  // In production, this would call the actual API endpoint
-  const monsters: Monster[] = [];
+  const response = await client.getRaw<MonsterServiceResponse>(url, cacheKey, 86_400_000);
+  const config = await getGameConfig(client);
 
-  const formattedResults =
-    monsters.length > 0
-      ? monsters
-          .map(
-            (m) =>
-              `${m.name} - CR ${m.challengeRating}, ${m.size} ${m.type}, AC ${m.armorClass}`
-          )
-          .join("\n")
-      : "No monsters found matching the search criteria.";
+  const crMap = new Map(config.challengeRatings.map((cr) => [cr.id, cr]));
+  const typeMap = new Map(config.monsterTypes.map((t) => [t.id, t.name]));
+
+  let monsters = response.data ?? [];
+
+  // Client-side filter by CR if requested
+  if (params.cr !== undefined) {
+    const targetCr = config.challengeRatings.find((cr) => cr.value === params.cr);
+    if (targetCr) {
+      monsters = monsters.filter((m) => m.challengeRatingId === targetCr.id);
+    }
+  }
+
+  // Client-side filter by type if requested
+  if (params.type) {
+    const searchType = params.type.toLowerCase();
+    monsters = monsters.filter((m) => {
+      const typeName = typeMap.get(m.typeId)?.toLowerCase() ?? "";
+      return typeName.includes(searchType);
+    });
+  }
+
+  // Client-side filter by size if requested
+  if (params.size) {
+    const searchSize = params.size.toLowerCase();
+    monsters = monsters.filter((m) => {
+      const sizeName = SIZE_MAP[m.sizeId]?.toLowerCase() ?? "";
+      return sizeName.includes(searchSize);
+    });
+  }
+
+  if (monsters.length === 0) {
+    return {
+      content: [{ type: "text", text: "No monsters found matching the search criteria." }],
+    };
+  }
+
+  const lines = [`# Monster Search Results (${monsters.length} of ${response.pagination.total} total)\n`];
+  for (const m of monsters) {
+    const cr = crMap.get(m.challengeRatingId);
+    const crStr = cr ? (cr.value < 1 ? `${cr.value}` : `${cr.value}`) : "?";
+    const typeName = typeMap.get(m.typeId) ?? "Unknown";
+    const sizeName = SIZE_MAP[m.sizeId] ?? "Unknown";
+
+    lines.push(
+      `- **${m.name}** — CR ${crStr}, ${sizeName} ${typeName}, AC ${m.armorClass}, ${m.averageHitPoints} HP${m.isLegendary ? " ★" : ""}`
+    );
+  }
 
   return {
-    content: [
-      {
-        type: "text",
-        text: `# Monster Search Results\n\n${formattedResults}`,
-      },
-    ],
+    content: [{ type: "text", text: lines.join("\n") }],
   };
 }
 
 /**
- * Get full stat block for a specific monster.
+ * Get full stat block for a specific monster by name.
  */
 export async function getMonster(
   client: DdbClient,
   params: { monsterName: string }
 ): Promise<ToolResult> {
-  const cacheKey = `monster:${params.monsterName.toLowerCase()}`;
+  // Search for the monster by name
+  const searchUrl = ENDPOINTS.monster.search(params.monsterName, 0, 5);
+  const searchCacheKey = `monsters:search:${params.monsterName.toLowerCase()}`;
+  const searchResponse = await client.getRaw<MonsterServiceResponse>(searchUrl, searchCacheKey, 86_400_000);
 
-  // Placeholder for actual API call
-  const monster: Monster | null = null;
-
-  if (!monster) {
+  if (!searchResponse.data || searchResponse.data.length === 0) {
     return {
-      content: [
-        {
-          type: "text",
-          text: `Monster "${params.monsterName}" not found.`,
-        },
-      ],
+      content: [{ type: "text", text: `Monster "${params.monsterName}" not found.` }],
     };
   }
 
-  const statBlock = formatMonsterStatBlock(monster);
+  // Find best match (exact first, then partial)
+  const searchName = params.monsterName.toLowerCase();
+  let monster = searchResponse.data.find(
+    (m) => m.name.toLowerCase() === searchName
+  );
+  if (!monster) {
+    monster = searchResponse.data[0];
+  }
+
+  // Fetch full details by ID
+  const detailUrl = ENDPOINTS.monster.get(monster.id);
+  const detailCacheKey = `monster:${monster.id}`;
+  const detailResponse = await client.getRaw<MonsterServiceSingleResponse>(detailUrl, detailCacheKey, 86_400_000);
+
+  const m = detailResponse.data;
+  if (!m) {
+    return {
+      content: [{ type: "text", text: `Monster "${params.monsterName}" not found.` }],
+    };
+  }
+
+  const config = await getGameConfig(client);
+  const crMap = new Map(config.challengeRatings.map((cr) => [cr.id, cr]));
+  const typeMap = new Map(config.monsterTypes.map((t) => [t.id, t.name]));
+  const alignMap = new Map(config.alignments.map((a) => [a.id, a.name]));
+  const senseMap = new Map(config.senses.map((s) => [s.id, s.name]));
+
+  const cr = crMap.get(m.challengeRatingId);
+  const crStr = cr ? `${cr.value}` : "?";
+  const xp = cr?.xp ?? 0;
+  const typeName = typeMap.get(m.typeId) ?? "Unknown";
+  const sizeName = SIZE_MAP[m.sizeId] ?? "Unknown";
+  const alignment = alignMap.get(m.alignmentId) ?? "Unaligned";
+
+  const lines: string[] = [];
+  lines.push(`# ${m.name}`);
+  lines.push(`*${sizeName} ${typeName}, ${alignment}*\n`);
+
+  lines.push(`**Armor Class** ${m.armorClass}${m.armorClassDescription ? " " + m.armorClassDescription.trim() : ""}`);
+  lines.push(`**Hit Points** ${m.averageHitPoints}${m.hitPointDice?.diceString ? " (" + m.hitPointDice.diceString + ")" : ""}`);
+
+  // Speed
+  if (m.movements && m.movements.length > 0) {
+    const speeds = m.movements.map((mv) => {
+      const name = MOVEMENT_NAMES[mv.movementId] ?? "walk";
+      return name === "walk" ? `${mv.speed} ft.` : `${name} ${mv.speed} ft.`;
+    });
+    lines.push(`**Speed** ${speeds.join(", ")}`);
+  }
+
+  // Ability scores
+  if (m.stats && m.stats.length > 0) {
+    lines.push("");
+    const statLine = m.stats
+      .sort((a, b) => a.statId - b.statId)
+      .map((s) => `**${STAT_NAMES[s.statId]}** ${s.value} (${abilityMod(s.value)})`)
+      .join(" | ");
+    lines.push(statLine);
+  }
+
+  lines.push("");
+
+  // Saving throws
+  if (m.savingThrows && m.savingThrows.length > 0) {
+    const saves = m.savingThrows
+      .map((s) => `${STAT_NAMES[s.statId]} +${s.bonusModifier}`)
+      .join(", ");
+    lines.push(`**Saving Throws** ${saves}`);
+  }
+
+  // Skills
+  if (m.skillsHtml) {
+    lines.push(`**Skills** ${stripHtml(m.skillsHtml)}`);
+  }
+
+  // Senses
+  if (m.senses && m.senses.length > 0) {
+    const senseStrs = m.senses.map((s) => {
+      const name = senseMap.get(s.senseId) ?? "Unknown";
+      return `${name} ${s.notes}`;
+    });
+    senseStrs.push(`passive Perception ${m.passivePerception}`);
+    lines.push(`**Senses** ${senseStrs.join(", ")}`);
+  } else {
+    lines.push(`**Senses** passive Perception ${m.passivePerception}`);
+  }
+
+  // Languages
+  if (m.languageDescription) {
+    lines.push(`**Languages** ${m.languageDescription}${m.languageNote ? " " + m.languageNote : ""}`);
+  }
+
+  // CR
+  lines.push(`**Challenge** ${crStr} (${xp.toLocaleString()} XP)`);
+
+  // Traits
+  if (m.specialTraitsDescription) {
+    lines.push("\n---\n");
+    lines.push(stripHtml(m.specialTraitsDescription));
+  }
+
+  // Actions
+  if (m.actionsDescription) {
+    lines.push("\n## Actions\n");
+    lines.push(stripHtml(m.actionsDescription));
+  }
+
+  // Bonus Actions
+  if (m.bonusActionsDescription) {
+    lines.push("\n## Bonus Actions\n");
+    lines.push(stripHtml(m.bonusActionsDescription));
+  }
+
+  // Reactions
+  if (m.reactionsDescription) {
+    lines.push("\n## Reactions\n");
+    lines.push(stripHtml(m.reactionsDescription));
+  }
+
+  // Legendary Actions
+  if (m.legendaryActionsDescription) {
+    lines.push("\n## Legendary Actions\n");
+    lines.push(stripHtml(m.legendaryActionsDescription));
+  }
+
+  // Mythic Actions
+  if (m.mythicActionsDescription) {
+    lines.push("\n## Mythic Actions\n");
+    lines.push(stripHtml(m.mythicActionsDescription));
+  }
+
+  // Restricted content notice
+  if (detailResponse.accessType === 4 && (!m.stats || m.stats.length === 0)) {
+    lines.push("\n---\n*This monster's full stat block requires content ownership on D&D Beyond.*");
+  }
 
   return {
-    content: [
-      {
-        type: "text",
-        text: statBlock,
-      },
-    ],
+    content: [{ type: "text", text: lines.join("\n") }],
   };
 }
 
-/**
- * Format a monster's stat block as readable text.
- */
-function formatMonsterStatBlock(monster: Monster): string {
-  const lines: string[] = [];
+// --- Item types ---
 
-  lines.push(`=== ${monster.name.toUpperCase()} ===`);
-  lines.push("");
-  lines.push(`${monster.size} ${monster.type}, ${monster.alignment}`);
-  lines.push("");
-
-  lines.push(`Armor Class: ${monster.armorClass}`);
-  lines.push(`Hit Points: ${monster.hitPoints}`);
-
-  const speeds = Object.entries(monster.speed)
-    .map(([type, value]) => `${type} ${value} ft.`)
-    .join(", ");
-  lines.push(`Speed: ${speeds}`);
-  lines.push("");
-
-  lines.push("STR  DEX  CON  INT  WIS  CHA");
-  lines.push(
-    `${monster.abilityScores.strength.toString().padStart(2)}   ` +
-      `${monster.abilityScores.dexterity.toString().padStart(2)}   ` +
-      `${monster.abilityScores.constitution.toString().padStart(2)}   ` +
-      `${monster.abilityScores.intelligence.toString().padStart(2)}   ` +
-      `${monster.abilityScores.wisdom.toString().padStart(2)}   ` +
-      `${monster.abilityScores.charisma.toString().padStart(2)}`
-  );
-  lines.push("");
-
-  if (monster.skills && Object.keys(monster.skills).length > 0) {
-    const skills = Object.entries(monster.skills)
-      .map(([skill, bonus]) => `${skill} +${bonus}`)
-      .join(", ");
-    lines.push(`Skills: ${skills}`);
-  }
-
-  if (monster.senses && Object.keys(monster.senses).length > 0) {
-    const senses = Object.entries(monster.senses)
-      .map(([sense, range]) => `${sense} ${range}`)
-      .join(", ");
-    lines.push(`Senses: ${senses}`);
-  }
-
-  if (monster.languages && monster.languages.length > 0) {
-    lines.push(`Languages: ${monster.languages.join(", ")}`);
-  }
-
-  lines.push(`Challenge: ${monster.challengeRating}`);
-  lines.push("");
-
-  if (monster.traits && monster.traits.length > 0) {
-    lines.push("--- TRAITS ---");
-    for (const trait of monster.traits) {
-      lines.push(`${trait.name}: ${trait.description}`);
-      lines.push("");
-    }
-  }
-
-  if (monster.actions && monster.actions.length > 0) {
-    lines.push("--- ACTIONS ---");
-    for (const action of monster.actions) {
-      lines.push(`${action.name}: ${action.description}`);
-      lines.push("");
-    }
-  }
-
-  if (monster.reactions && monster.reactions.length > 0) {
-    lines.push("--- REACTIONS ---");
-    for (const reaction of monster.reactions) {
-      lines.push(`${reaction.name}: ${reaction.description}`);
-      lines.push("");
-    }
-  }
-
-  if (monster.legendaryActions && monster.legendaryActions.length > 0) {
-    lines.push("--- LEGENDARY ACTIONS ---");
-    for (const legendary of monster.legendaryActions) {
-      lines.push(`${legendary.name}: ${legendary.description}`);
-      lines.push("");
-    }
-  }
-
-  return lines.join("\n");
+interface DdbItem {
+  id: number;
+  name: string;
+  type: string;
+  filterType: string;
+  rarity: string;
+  requiresAttunement: boolean;
+  attunementDescription: string;
+  description: string;
+  snippet: string;
+  weight: number;
+  cost: number | null;
+  armorClass: number | null;
+  damage: { diceString: string } | null;
+  properties: Array<{ name: string }> | null;
+  isHomebrew: boolean;
+  sources: Array<{ sourceId: number }>;
+  canAttune: boolean;
+  magic: boolean;
 }
 
 /**
- * Search for magic items by name, rarity, type.
+ * Search for items by name, rarity, or type.
  */
 export async function searchItems(
   client: DdbClient,
   params: ItemSearchParams
 ): Promise<ToolResult> {
-  const cacheKey = `items:search:${JSON.stringify(params)}`;
+  const cacheKey = "game-data:items";
+  const items = await client.get<DdbItem[]>(
+    ENDPOINTS.gameData.items(),
+    cacheKey,
+    86_400_000,
+  );
 
-  // Placeholder for actual API call
-  const items: Item[] = [];
+  let matched = items ?? [];
 
-  const formattedResults =
-    items.length > 0
-      ? items
-          .map(
-            (i) =>
-              `${i.name} - ${i.rarity} ${i.type}${
-                i.requiresAttunement ? " (requires attunement)" : ""
-              }`
-          )
-          .join("\n")
-      : "No items found matching the search criteria.";
+  if (params.name) {
+    const searchName = params.name.toLowerCase();
+    matched = matched.filter((i) => i.name.toLowerCase().includes(searchName));
+  }
+
+  if (params.rarity) {
+    const searchRarity = params.rarity.toLowerCase();
+    matched = matched.filter((i) => i.rarity?.toLowerCase().includes(searchRarity));
+  }
+
+  if (params.type) {
+    const searchType = params.type.toLowerCase();
+    matched = matched.filter(
+      (i) =>
+        i.type?.toLowerCase().includes(searchType) ||
+        i.filterType?.toLowerCase().includes(searchType)
+    );
+  }
+
+  // Sort by name
+  matched.sort((a, b) => a.name.localeCompare(b.name));
+
+  // Limit results
+  const total = matched.length;
+  matched = matched.slice(0, 30);
+
+  if (matched.length === 0) {
+    return {
+      content: [{ type: "text", text: "No items found matching the search criteria." }],
+    };
+  }
+
+  const lines = [`# Item Search Results (${total > 30 ? `showing 30 of ${total}` : `${total} found`})\n`];
+  for (const item of matched) {
+    const attune = item.requiresAttunement ? " (attunement)" : "";
+    lines.push(`- **${item.name}** — ${item.rarity || "Common"} ${item.filterType || item.type || ""}${attune}`);
+  }
 
   return {
-    content: [
-      {
-        type: "text",
-        text: `# Magic Item Search Results\n\n${formattedResults}`,
-      },
-    ],
+    content: [{ type: "text", text: lines.join("\n") }],
   };
 }
 
 /**
- * Get full details for a specific magic item.
+ * Get full details for a specific item by name.
  */
 export async function getItem(
   client: DdbClient,
   params: { itemName: string }
 ): Promise<ToolResult> {
-  const cacheKey = `item:${params.itemName.toLowerCase()}`;
+  const cacheKey = "game-data:items";
+  const items = await client.get<DdbItem[]>(
+    ENDPOINTS.gameData.items(),
+    cacheKey,
+    86_400_000,
+  );
 
-  // Placeholder for actual API call
-  const item: Item | null = null;
+  const searchName = params.itemName.toLowerCase();
+  let item = (items ?? []).find((i) => i.name.toLowerCase() === searchName);
+  if (!item) {
+    item = (items ?? []).find((i) => i.name.toLowerCase().includes(searchName));
+  }
 
   if (!item) {
     return {
-      content: [
-        {
-          type: "text",
-          text: `Item "${params.itemName}" not found.`,
-        },
-      ],
+      content: [{ type: "text", text: `Item "${params.itemName}" not found.` }],
     };
   }
 
-  const details = formatItemDetails(item);
+  const lines: string[] = [];
+  lines.push(`# ${item.name}`);
+  lines.push(`*${item.filterType || item.type || "Item"}, ${item.rarity || "common"}*\n`);
+
+  if (item.requiresAttunement) {
+    lines.push(`**Requires Attunement**${item.attunementDescription ? " " + item.attunementDescription : ""}`);
+  }
+
+  if (item.weight) lines.push(`**Weight:** ${item.weight} lb.`);
+  if (item.armorClass) lines.push(`**AC:** ${item.armorClass}`);
+  if (item.damage?.diceString) lines.push(`**Damage:** ${item.damage.diceString}`);
+
+  if (item.properties && item.properties.length > 0) {
+    lines.push(`**Properties:** ${item.properties.map((p) => p.name).join(", ")}`);
+  }
+
+  lines.push("");
+  lines.push(stripHtml(item.description || item.snippet || "No description available."));
 
   return {
-    content: [
-      {
-        type: "text",
-        text: details,
-      },
-    ],
+    content: [{ type: "text", text: lines.join("\n") }],
   };
 }
 
-/**
- * Format an item's details as readable text.
- */
-function formatItemDetails(item: Item): string {
-  const lines: string[] = [];
+// --- Feat types ---
 
-  lines.push(`=== ${item.name.toUpperCase()} ===`);
-  lines.push("");
-  lines.push(`Type: ${item.type}`);
-  lines.push(`Rarity: ${item.rarity}`);
-
-  if (item.requiresAttunement) {
-    lines.push("Requires Attunement: Yes");
-  }
-
-  if (item.weight) {
-    lines.push(`Weight: ${item.weight} lb.`);
-  }
-
-  if (item.properties && item.properties.length > 0) {
-    lines.push(`Properties: ${item.properties.join(", ")}`);
-  }
-
-  lines.push("");
-  lines.push(item.description);
-
-  return lines.join("\n");
+interface DdbFeat {
+  id: number;
+  name: string;
+  description: string;
+  snippet: string;
+  prerequisite: string | null;
+  isHomebrew: boolean;
+  sources: Array<{ sourceId: number }>;
 }
 
 /**
- * Search for feats by name or prerequisite.
+ * Search for feats by name.
  */
 export async function searchFeats(
   client: DdbClient,
   params: FeatSearchParams
 ): Promise<ToolResult> {
-  const cacheKey = `feats:search:${JSON.stringify(params)}`;
+  const cacheKey = "game-data:feats";
+  const feats = await client.get<DdbFeat[]>(
+    ENDPOINTS.gameData.feats(),
+    cacheKey,
+    86_400_000,
+  );
 
-  // Placeholder for actual API call
-  const feats: Feat[] = [];
+  let matched = feats ?? [];
 
-  const formattedResults =
-    feats.length > 0
-      ? feats
-          .map(
-            (f) =>
-              `${f.name}${
-                f.prerequisite ? ` (Prerequisite: ${f.prerequisite})` : ""
-              }`
-          )
-          .join("\n")
-      : "No feats found matching the search criteria.";
+  if (params.name) {
+    const searchName = params.name.toLowerCase();
+    matched = matched.filter((f) => f.name.toLowerCase().includes(searchName));
+  }
+
+  if (params.prerequisite) {
+    const searchPrereq = params.prerequisite.toLowerCase();
+    matched = matched.filter(
+      (f) => f.prerequisite?.toLowerCase().includes(searchPrereq)
+    );
+  }
+
+  matched.sort((a, b) => a.name.localeCompare(b.name));
+
+  if (matched.length === 0) {
+    return {
+      content: [{ type: "text", text: "No feats found matching the search criteria." }],
+    };
+  }
+
+  const lines = [`# Feat Search Results (${matched.length} found)\n`];
+  for (const feat of matched) {
+    const prereq = feat.prerequisite ? ` (Prerequisite: ${feat.prerequisite})` : "";
+    const desc = feat.snippet || feat.description || "";
+    const shortDesc = stripHtml(desc).substring(0, 80);
+    lines.push(`- **${feat.name}**${prereq} — ${shortDesc}${shortDesc.length >= 80 ? "..." : ""}`);
+  }
 
   return {
-    content: [
-      {
-        type: "text",
-        text: `# Feat Search Results\n\n${formattedResults}`,
-      },
-    ],
+    content: [{ type: "text", text: lines.join("\n") }],
   };
 }
+
+// --- Condition lookup ---
+
+// Standard D&D 5e conditions with rules text
+const CONDITIONS: Record<string, { name: string; description: string; effects: string[] }> = {
+  blinded: {
+    name: "Blinded",
+    description: "A blinded creature can't see and automatically fails any ability check that requires sight.",
+    effects: [
+      "Attack rolls against the creature have advantage.",
+      "The creature's attack rolls have disadvantage.",
+    ],
+  },
+  charmed: {
+    name: "Charmed",
+    description: "A charmed creature can't attack the charmer or target the charmer with harmful abilities or magical effects.",
+    effects: [
+      "The charmer has advantage on any ability check to interact socially with the creature.",
+    ],
+  },
+  deafened: {
+    name: "Deafened",
+    description: "A deafened creature can't hear and automatically fails any ability check that requires hearing.",
+    effects: [],
+  },
+  exhaustion: {
+    name: "Exhaustion",
+    description: "Exhaustion is measured in six levels. An effect can give a creature one or more levels of exhaustion.",
+    effects: [
+      "Level 1: Disadvantage on ability checks",
+      "Level 2: Speed halved",
+      "Level 3: Disadvantage on attack rolls and saving throws",
+      "Level 4: Hit point maximum halved",
+      "Level 5: Speed reduced to 0",
+      "Level 6: Death",
+    ],
+  },
+  frightened: {
+    name: "Frightened",
+    description: "A frightened creature has disadvantage on ability checks and attack rolls while the source of its fear is within line of sight.",
+    effects: [
+      "The creature can't willingly move closer to the source of its fear.",
+    ],
+  },
+  grappled: {
+    name: "Grappled",
+    description: "A grappled creature's speed becomes 0, and it can't benefit from any bonus to its speed.",
+    effects: [
+      "The condition ends if the grappler is incapacitated.",
+      "The condition also ends if an effect removes the grappled creature from the reach of the grappler.",
+    ],
+  },
+  incapacitated: {
+    name: "Incapacitated",
+    description: "An incapacitated creature can't take actions or reactions.",
+    effects: [],
+  },
+  invisible: {
+    name: "Invisible",
+    description: "An invisible creature is impossible to see without the aid of magic or a special sense.",
+    effects: [
+      "The creature is heavily obscured for the purpose of hiding (can always try to hide).",
+      "Attack rolls against the creature have disadvantage.",
+      "The creature's attack rolls have advantage.",
+    ],
+  },
+  paralyzed: {
+    name: "Paralyzed",
+    description: "A paralyzed creature is incapacitated and can't move or speak.",
+    effects: [
+      "The creature automatically fails Strength and Dexterity saving throws.",
+      "Attack rolls against the creature have advantage.",
+      "Any attack that hits the creature is a critical hit if the attacker is within 5 feet.",
+    ],
+  },
+  petrified: {
+    name: "Petrified",
+    description: "A petrified creature is transformed, along with any nonmagical objects it is wearing or carrying, into a solid inanimate substance (usually stone).",
+    effects: [
+      "Its weight increases by a factor of ten, and it ceases aging.",
+      "The creature is incapacitated, can't move or speak, and is unaware of its surroundings.",
+      "Attack rolls against the creature have advantage.",
+      "The creature automatically fails Strength and Dexterity saving throws.",
+      "The creature has resistance to all damage.",
+      "The creature is immune to poison and disease.",
+    ],
+  },
+  poisoned: {
+    name: "Poisoned",
+    description: "A poisoned creature has disadvantage on attack rolls and ability checks.",
+    effects: [],
+  },
+  prone: {
+    name: "Prone",
+    description: "A prone creature's only movement option is to crawl, unless it stands up and thereby ends the condition.",
+    effects: [
+      "The creature has disadvantage on attack rolls.",
+      "An attack roll against the creature has advantage if the attacker is within 5 feet; otherwise, the attack roll has disadvantage.",
+    ],
+  },
+  restrained: {
+    name: "Restrained",
+    description: "A restrained creature's speed becomes 0, and it can't benefit from any bonus to its speed.",
+    effects: [
+      "Attack rolls against the creature have advantage.",
+      "The creature's attack rolls have disadvantage.",
+      "The creature has disadvantage on Dexterity saving throws.",
+    ],
+  },
+  stunned: {
+    name: "Stunned",
+    description: "A stunned creature is incapacitated, can't move, and can speak only falteringly.",
+    effects: [
+      "The creature automatically fails Strength and Dexterity saving throws.",
+      "Attack rolls against the creature have advantage.",
+    ],
+  },
+  unconscious: {
+    name: "Unconscious",
+    description: "An unconscious creature is incapacitated, can't move or speak, and is unaware of its surroundings.",
+    effects: [
+      "The creature drops whatever it's holding and falls prone.",
+      "The creature automatically fails Strength and Dexterity saving throws.",
+      "Attack rolls against the creature have advantage.",
+      "Any attack that hits the creature is a critical hit if the attacker is within 5 feet.",
+    ],
+  },
+};
 
 /**
  * Get the rules text for a specific condition.
  */
 export async function getCondition(
-  client: DdbClient,
+  _client: DdbClient,
   params: { conditionName: string }
 ): Promise<ToolResult> {
-  const cacheKey = `condition:${params.conditionName.toLowerCase()}`;
-
-  // Placeholder for actual API call
-  const condition: Condition | null = null;
+  const searchName = params.conditionName.toLowerCase().trim();
+  const condition = CONDITIONS[searchName];
 
   if (!condition) {
+    // Try partial match
+    const match = Object.values(CONDITIONS).find(
+      (c) => c.name.toLowerCase().includes(searchName)
+    );
+    if (match) {
+      return formatConditionDetails(match);
+    }
+
+    const available = Object.values(CONDITIONS).map((c) => c.name).join(", ");
     return {
       content: [
-        {
-          type: "text",
-          text: `Condition "${params.conditionName}" not found.`,
-        },
+        { type: "text", text: `Condition "${params.conditionName}" not found.\n\nAvailable conditions: ${available}` },
       ],
     };
   }
 
-  const details = formatConditionDetails(condition);
-
-  return {
-    content: [
-      {
-        type: "text",
-        text: details,
-      },
-    ],
-  };
+  return formatConditionDetails(condition);
 }
 
-/**
- * Format a condition's details as readable text.
- */
-function formatConditionDetails(condition: Condition): string {
+function formatConditionDetails(condition: { name: string; description: string; effects: string[] }): ToolResult {
   const lines: string[] = [];
-
-  lines.push(`=== ${condition.name.toUpperCase()} ===`);
+  lines.push(`# ${condition.name}`);
   lines.push("");
   lines.push(condition.description);
 
-  if (condition.effects && condition.effects.length > 0) {
+  if (condition.effects.length > 0) {
     lines.push("");
-    lines.push("Effects:");
     for (const effect of condition.effects) {
-      lines.push(`• ${effect}`);
+      lines.push(`- ${effect}`);
     }
   }
 
-  return lines.join("\n");
+  return {
+    content: [{ type: "text", text: lines.join("\n") }],
+  };
+}
+
+// --- Class search ---
+
+interface DdbClass {
+  id: number;
+  name: string;
+  description: string;
+  hitDice: number;
+  isHomebrew: boolean;
+  spellCastingAbilityId: number | null;
+  subclasses?: Array<{ id: number; name: string; description: string }>;
+  sources: Array<{ sourceId: number }>;
+  classFeatures?: Array<{ id: number; name: string; description: string; level: number }>;
 }
 
 /**
- * Search for character classes and subclasses.
+ * Search for character classes.
  */
 export async function searchClasses(
   client: DdbClient,
   params: { className?: string }
 ): Promise<ToolResult> {
-  const cacheKey = `classes:search:${JSON.stringify(params)}`;
+  const cacheKey = "game-data:classes";
+  const classes = await client.get<DdbClass[]>(
+    ENDPOINTS.gameData.classes(),
+    cacheKey,
+    86_400_000,
+  );
 
-  // Placeholder for actual API call
-  const classes: CharacterClass[] = [];
+  let matched = classes ?? [];
 
-  if (classes.length === 0) {
+  if (params.className) {
+    const searchName = params.className.toLowerCase();
+    matched = matched.filter((c) => c.name.toLowerCase().includes(searchName));
+  }
+
+  matched.sort((a, b) => a.name.localeCompare(b.name));
+
+  if (matched.length === 0) {
     return {
-      content: [
-        {
-          type: "text",
-          text: "No classes found matching the search criteria.",
-        },
-      ],
+      content: [{ type: "text", text: "No classes found matching the search criteria." }],
     };
   }
 
-  const details = classes
-    .map((c) => {
-      const lines: string[] = [];
-      lines.push(`=== ${c.name.toUpperCase()} ===`);
-      lines.push("");
-      lines.push(c.description);
-      lines.push("");
-      lines.push(`Hit Die: d${c.hitDie}`);
-      lines.push(`Primary Ability: ${c.primaryAbility.join(" or ")}`);
-      lines.push(`Saving Throw Proficiencies: ${c.savingThrows.join(", ")}`);
+  const lines = [`# Class Search Results (${matched.length} found)\n`];
+  for (const cls of matched) {
+    const hitDie = cls.hitDice ? `d${cls.hitDice}` : "?";
+    const spellcasting = cls.spellCastingAbilityId
+      ? ` | Spellcasting: ${STAT_NAMES[cls.spellCastingAbilityId] || "Yes"}`
+      : "";
+    lines.push(`- **${cls.name}** — Hit Die: ${hitDie}${spellcasting}`);
 
-      if (c.subclasses && c.subclasses.length > 0) {
-        lines.push("");
-        lines.push("Subclasses:");
-        for (const subclass of c.subclasses) {
-          lines.push(`  • ${subclass.name}: ${subclass.description}`);
-        }
-      }
-
-      return lines.join("\n");
-    })
-    .join("\n\n---\n\n");
+    const desc = stripHtml(cls.description || "").substring(0, 100);
+    if (desc) lines.push(`  ${desc}${desc.length >= 100 ? "..." : ""}`);
+  }
 
   return {
-    content: [
-      {
-        type: "text",
-        text: details,
-      },
-    ],
+    content: [{ type: "text", text: lines.join("\n") }],
   };
 }

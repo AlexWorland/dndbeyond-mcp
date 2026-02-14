@@ -1,68 +1,65 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { listCampaigns, getCampaignCharacters } from "../../src/tools/campaign.js";
 import { DdbClient } from "../../src/api/client.js";
-import type { DdbCampaignResponse } from "../../src/types/api.js";
+import type { DdbCampaign } from "../../src/types/api.js";
 
-vi.mock("../../src/api/client.js");
-
-const mockClient = {
-  get: vi.fn(),
-} as unknown as DdbClient;
-
-const sampleCampaignResponse: DdbCampaignResponse = {
-  status: "success",
-  data: [
-    {
-      id: 101,
-      name: "Lost Mines of Phandelver",
-      dmId: 1,
-      dmUsername: "DungeonMaster",
-      characters: [
-        {
-          characterId: 1001,
-          characterName: "Thorin Stonehammer",
-          userId: 10,
-          username: "player1",
-        },
-        {
-          characterId: 1002,
-          characterName: "Elara Moonwhisper",
-          userId: 11,
-          username: "player2",
-        },
-        {
-          characterId: 1003,
-          characterName: "Grimjaw",
-          userId: 12,
-          username: "player3",
-        },
-      ],
-    },
-    {
-      id: 102,
-      name: "Curse of Strahd",
-      dmId: 2,
-      dmUsername: "DarkDM",
-      characters: [
-        {
-          characterId: 2001,
-          characterName: "Van Helsing",
-          userId: 20,
-          username: "hunter",
-        },
-      ],
-    },
-  ],
-};
+const sampleCampaigns: DdbCampaign[] = [
+  {
+    id: 101,
+    name: "Lost Mines of Phandelver",
+    dmId: 1,
+    dmUsername: "DungeonMaster",
+    characters: [
+      {
+        characterId: 1001,
+        characterName: "Thorin Stonehammer",
+        userId: 10,
+        username: "player1",
+      },
+      {
+        characterId: 1002,
+        characterName: "Elara Moonwhisper",
+        userId: 11,
+        username: "player2",
+      },
+      {
+        characterId: 1003,
+        characterName: "Grimjaw",
+        userId: 12,
+        username: "player3",
+      },
+    ],
+  },
+  {
+    id: 102,
+    name: "Curse of Strahd",
+    dmId: 2,
+    dmUsername: "DarkDM",
+    characters: [
+      {
+        characterId: 2001,
+        characterName: "Van Helsing",
+        userId: 20,
+        username: "hunter",
+      },
+    ],
+  },
+];
 
 describe("campaign tools", () => {
+  let mockClient: DdbClient;
+
   beforeEach(() => {
+    mockClient = {
+      get: vi.fn(),
+      getRaw: vi.fn(),
+    } as unknown as DdbClient;
     vi.clearAllMocks();
   });
 
   describe("listCampaigns", () => {
     it("shouldFormatCampaignListCorrectly", async () => {
-      vi.mocked(mockClient.get).mockResolvedValue(sampleCampaignResponse);
+      vi.mocked(mockClient.get).mockResolvedValue(sampleCampaigns);
 
       const result = await listCampaigns(mockClient);
 
@@ -78,11 +75,7 @@ describe("campaign tools", () => {
     });
 
     it("shouldHandleEmptyCampaignList", async () => {
-      const emptyResponse: DdbCampaignResponse = {
-        status: "success",
-        data: [],
-      };
-      vi.mocked(mockClient.get).mockResolvedValue(emptyResponse);
+      vi.mocked(mockClient.get).mockResolvedValue([]);
 
       const result = await listCampaigns(mockClient);
 
@@ -92,7 +85,7 @@ describe("campaign tools", () => {
     });
 
     it("shouldUseCampaignCacheKey", async () => {
-      vi.mocked(mockClient.get).mockResolvedValue(sampleCampaignResponse);
+      vi.mocked(mockClient.get).mockResolvedValue(sampleCampaigns);
 
       await listCampaigns(mockClient);
 
@@ -106,7 +99,7 @@ describe("campaign tools", () => {
 
   describe("getCampaignCharacters", () => {
     it("shouldReturnFormattedPartyRoster", async () => {
-      vi.mocked(mockClient.get).mockResolvedValue(sampleCampaignResponse);
+      vi.mocked(mockClient.get).mockResolvedValue(sampleCampaigns);
 
       const result = await getCampaignCharacters(mockClient, { campaignId: 101 });
 
@@ -119,7 +112,7 @@ describe("campaign tools", () => {
     });
 
     it("shouldHandleCampaignNotFound", async () => {
-      vi.mocked(mockClient.get).mockResolvedValue(sampleCampaignResponse);
+      vi.mocked(mockClient.get).mockResolvedValue(sampleCampaigns);
 
       const result = await getCampaignCharacters(mockClient, { campaignId: 999 });
 
@@ -129,19 +122,15 @@ describe("campaign tools", () => {
     });
 
     it("shouldHandleCampaignWithNoCharacters", async () => {
-      const emptyCampaignResponse: DdbCampaignResponse = {
-        status: "success",
-        data: [
-          {
-            id: 103,
-            name: "Empty Campaign",
-            dmId: 3,
-            dmUsername: "NewDM",
-            characters: [],
-          },
-        ],
-      };
-      vi.mocked(mockClient.get).mockResolvedValue(emptyCampaignResponse);
+      vi.mocked(mockClient.get).mockResolvedValue([
+        {
+          id: 103,
+          name: "Empty Campaign",
+          dmId: 3,
+          dmUsername: "NewDM",
+          characters: [],
+        },
+      ]);
 
       const result = await getCampaignCharacters(mockClient, { campaignId: 103 });
 
@@ -151,7 +140,7 @@ describe("campaign tools", () => {
     });
 
     it("shouldUseCampaignSpecificCacheKey", async () => {
-      vi.mocked(mockClient.get).mockResolvedValue(sampleCampaignResponse);
+      vi.mocked(mockClient.get).mockResolvedValue(sampleCampaigns);
 
       await getCampaignCharacters(mockClient, { campaignId: 101 });
 

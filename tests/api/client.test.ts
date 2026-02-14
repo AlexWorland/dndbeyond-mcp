@@ -1,18 +1,21 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { DdbClient } from "../../src/api/client.js";
 import { TtlCache } from "../../src/cache/lru.js";
 import { CircuitBreaker, RateLimiter, HttpError } from "../../src/resilience/index.js";
 
 vi.mock("../../src/api/auth.js", () => ({
+  getCobaltToken: vi.fn(),
+  getAllCookies: vi.fn(),
+  buildAuthHeadersFromCookies: vi.fn(),
   getCobaltSession: vi.fn(),
   buildAuthHeaders: vi.fn(),
 }));
 
-const mockGetCobaltSession = await import("../../src/api/auth.js").then(
-  (m) => m.getCobaltSession as ReturnType<typeof vi.fn>
+const mockGetCobaltToken = await import("../../src/api/auth.js").then(
+  (m) => m.getCobaltToken as ReturnType<typeof vi.fn>
 );
-const mockBuildAuthHeaders = await import("../../src/api/auth.js").then(
-  (m) => m.buildAuthHeaders as ReturnType<typeof vi.fn>
+const mockGetAllCookies = await import("../../src/api/auth.js").then(
+  (m) => m.getAllCookies as ReturnType<typeof vi.fn>
 );
 
 describe("DdbClient", () => {
@@ -42,11 +45,12 @@ describe("DdbClient", () => {
     mockFetch = vi.fn();
     global.fetch = mockFetch;
 
-    mockGetCobaltSession.mockResolvedValue("fake-session-token");
-    mockBuildAuthHeaders.mockReturnValue({
-      Authorization: "Bearer fake-token",
-      "Content-Type": "application/json",
-    });
+    // Default: character-service URL uses bearer tokens
+    mockGetCobaltToken.mockResolvedValue("fake-bearer-token");
+    // For non-character-service URLs, provide cookies
+    mockGetAllCookies.mockResolvedValue([
+      { name: "CobaltSession", value: "fake-session" },
+    ]);
   });
 
   describe("get", () => {
@@ -54,7 +58,7 @@ describe("DdbClient", () => {
       const cachedData = { id: 1, name: "Cached Character" };
       (mockCache.get as ReturnType<typeof vi.fn>).mockReturnValue(cachedData);
 
-      const result = await client.get("/api/characters/1", "character:1");
+      const result = await client.get("https://character-service.dndbeyond.com/character/v5/character/1", "character:1");
 
       expect(result).toBe(cachedData);
       expect(mockCache.get).toHaveBeenCalledWith("character:1");
@@ -62,83 +66,86 @@ describe("DdbClient", () => {
     });
 
     it("shouldFetchFromApiWhenCacheMiss", async () => {
-      const apiData = { id: 1, name: "API Character" };
+      const apiData = { success: true, data: { id: 1, name: "API Character" } };
       (mockCache.get as ReturnType<typeof vi.fn>).mockReturnValue(undefined);
       mockFetch.mockResolvedValue({
         ok: true,
         json: vi.fn().mockResolvedValue(apiData),
       });
 
-      const result = await client.get("/api/characters/1", "character:1");
+      const result = await client.get("https://character-service.dndbeyond.com/character/v5/character/1", "character:1");
 
-      expect(result).toEqual(apiData);
+      // client.get unwraps the envelope
+      expect(result).toEqual({ id: 1, name: "API Character" });
       expect(mockCache.get).toHaveBeenCalledWith("character:1");
-      expect(mockFetch).toHaveBeenCalledWith("/api/characters/1", {
-        method: "GET",
-        headers: {
-          Authorization: "Bearer fake-token",
-          "Content-Type": "application/json",
-        },
-      });
+      expect(mockFetch).toHaveBeenCalledWith(
+        "https://character-service.dndbeyond.com/character/v5/character/1",
+        expect.objectContaining({
+          method: "GET",
+          headers: expect.objectContaining({
+            Authorization: "Bearer fake-bearer-token",
+          }),
+        })
+      );
     });
 
     it("shouldStoreResultInCacheAfterFetch", async () => {
-      const apiData = { id: 1, name: "API Character" };
+      const apiData = { success: true, data: { id: 1, name: "API Character" } };
       (mockCache.get as ReturnType<typeof vi.fn>).mockReturnValue(undefined);
       mockFetch.mockResolvedValue({
         ok: true,
         json: vi.fn().mockResolvedValue(apiData),
       });
 
-      await client.get("/api/characters/1", "character:1", 300);
+      await client.get("https://character-service.dndbeyond.com/character/v5/character/1", "character:1", 300);
 
-      expect(mockCache.set).toHaveBeenCalledWith("character:1", apiData, 300);
+      // Cache stores the unwrapped data
+      expect(mockCache.set).toHaveBeenCalledWith("character:1", { id: 1, name: "API Character" }, 300);
     });
 
     it("shouldStoreResultInCacheWithoutTtlWhenNotProvided", async () => {
-      const apiData = { id: 1, name: "API Character" };
+      const apiData = { success: true, data: { id: 1, name: "API Character" } };
       (mockCache.get as ReturnType<typeof vi.fn>).mockReturnValue(undefined);
       mockFetch.mockResolvedValue({
         ok: true,
         json: vi.fn().mockResolvedValue(apiData),
       });
 
-      await client.get("/api/characters/1", "character:1");
+      await client.get("https://character-service.dndbeyond.com/character/v5/character/1", "character:1");
 
-      expect(mockCache.set).toHaveBeenCalledWith("character:1", apiData, undefined);
+      expect(mockCache.set).toHaveBeenCalledWith("character:1", { id: 1, name: "API Character" }, undefined);
     });
   });
 
   describe("put", () => {
     it("shouldSendRequestWithJsonBody", async () => {
       const requestBody = { name: "Updated Character", level: 5 };
-      const responseData = { id: 1, ...requestBody };
+      const responseData = { success: true, data: { id: 1, ...requestBody } };
       mockFetch.mockResolvedValue({
         ok: true,
         json: vi.fn().mockResolvedValue(responseData),
       });
 
-      const result = await client.put("/api/characters/1", requestBody);
+      const result = await client.put("https://character-service.dndbeyond.com/character/v5/character/1", requestBody);
 
-      expect(result).toEqual(responseData);
-      expect(mockFetch).toHaveBeenCalledWith("/api/characters/1", {
-        method: "PUT",
-        body: JSON.stringify(requestBody),
-        headers: {
-          Authorization: "Bearer fake-token",
-          "Content-Type": "application/json",
-        },
-      });
+      expect(result).toEqual({ id: 1, ...requestBody });
+      expect(mockFetch).toHaveBeenCalledWith(
+        "https://character-service.dndbeyond.com/character/v5/character/1",
+        expect.objectContaining({
+          method: "PUT",
+          body: JSON.stringify(requestBody),
+        })
+      );
     });
 
     it("shouldInvalidateSpecifiedCacheKeys", async () => {
-      const responseData = { id: 1, name: "Updated" };
+      const responseData = { success: true, data: { id: 1, name: "Updated" } };
       mockFetch.mockResolvedValue({
         ok: true,
         json: vi.fn().mockResolvedValue(responseData),
       });
 
-      await client.put("/api/characters/1", { name: "Updated" }, ["character:1", "characters:list"]);
+      await client.put("https://character-service.dndbeyond.com/character/v5/character/1", { name: "Updated" }, ["character:1", "characters:list"]);
 
       expect(mockCache.invalidate).toHaveBeenCalledWith("character:1");
       expect(mockCache.invalidate).toHaveBeenCalledWith("characters:list");
@@ -146,13 +153,13 @@ describe("DdbClient", () => {
     });
 
     it("shouldNotInvalidateCacheWhenKeysNotProvided", async () => {
-      const responseData = { id: 1, name: "Updated" };
+      const responseData = { success: true, data: { id: 1, name: "Updated" } };
       mockFetch.mockResolvedValue({
         ok: true,
         json: vi.fn().mockResolvedValue(responseData),
       });
 
-      await client.put("/api/characters/1", { name: "Updated" });
+      await client.put("https://character-service.dndbeyond.com/character/v5/character/1", { name: "Updated" });
 
       expect(mockCache.invalidate).not.toHaveBeenCalled();
     });
@@ -170,10 +177,12 @@ describe("DdbClient", () => {
         statusText: "Not Found",
       });
 
-      await expect(client.get("/api/characters/999", "character:999")).rejects.toThrow(HttpError);
-      await expect(client.get("/api/characters/999", "character:999")).rejects.toThrow(
-        "D&D Beyond API error: 404 Not Found"
-      );
+      await expect(
+        client.get("https://character-service.dndbeyond.com/character/v5/character/999", "character:999")
+      ).rejects.toThrow(HttpError);
+      await expect(
+        client.get("https://character-service.dndbeyond.com/character/v5/character/999", "character:999")
+      ).rejects.toThrow("D&D Beyond API error: 404 Not Found");
     });
 
     it("shouldSetAuthExpiredFlagWhen401Response", async () => {
@@ -185,7 +194,9 @@ describe("DdbClient", () => {
 
       expect(client.isAuthExpired).toBe(false);
 
-      await expect(client.get("/api/characters/1", "character:1")).rejects.toThrow(HttpError);
+      await expect(
+        client.get("https://character-service.dndbeyond.com/character/v5/character/1", "character:1")
+      ).rejects.toThrow(HttpError);
 
       expect(client.isAuthExpired).toBe(true);
     });
@@ -199,24 +210,25 @@ describe("DdbClient", () => {
 
       expect(client.isAuthExpired).toBe(false);
 
-      await expect(client.get("/api/characters/1", "character:1")).rejects.toThrow(HttpError);
+      await expect(
+        client.get("https://character-service.dndbeyond.com/character/v5/character/1", "character:1")
+      ).rejects.toThrow(HttpError);
 
       expect(client.isAuthExpired).toBe(false);
     });
 
-    it("shouldThrowErrorWhenNotAuthenticated", async () => {
+    it("shouldThrowErrorWhenNotAuthenticatedForCookieEndpoints", async () => {
       vi.useFakeTimers();
-      mockGetCobaltSession.mockResolvedValue(null);
+      mockGetAllCookies.mockResolvedValue([]);
 
-      const promise = client.get("/api/characters/1", "character:1");
+      const promise = client.get("https://www.dndbeyond.com/api/config/json", "config");
 
+      // Advance past withRetry's exponential backoff delays
       const expectPromise = expect(promise).rejects.toThrow("Not authenticated. Run setup first.");
-
       await vi.runAllTimersAsync();
       await expectPromise;
 
       expect(mockFetch).not.toHaveBeenCalled();
-
       vi.useRealTimers();
     });
   });
@@ -226,18 +238,18 @@ describe("DdbClient", () => {
       (mockCache.get as ReturnType<typeof vi.fn>).mockReturnValue(undefined);
       mockFetch.mockResolvedValue({
         ok: true,
-        json: vi.fn().mockResolvedValue({ id: 1 }),
+        json: vi.fn().mockResolvedValue({ success: true, data: { id: 1 } }),
       });
     });
 
     it("shouldCallRateLimiterAcquireBeforeEachRequest", async () => {
-      await client.get("/api/characters/1", "character:1");
+      await client.get("https://character-service.dndbeyond.com/character/v5/character/1", "character:1");
 
       expect(mockRateLimiter.acquire).toHaveBeenCalledTimes(1);
     });
 
     it("shouldWrapRequestInCircuitBreaker", async () => {
-      await client.get("/api/characters/1", "character:1");
+      await client.get("https://character-service.dndbeyond.com/character/v5/character/1", "character:1");
 
       expect(mockCircuitBreaker.execute).toHaveBeenCalledTimes(1);
       expect(mockCircuitBreaker.execute).toHaveBeenCalledWith(expect.any(Function));
@@ -255,7 +267,7 @@ describe("DdbClient", () => {
         return fn();
       });
 
-      await client.get("/api/characters/1", "character:1");
+      await client.get("https://character-service.dndbeyond.com/character/v5/character/1", "character:1");
 
       expect(callOrder).toEqual(["rateLimiter", "circuitBreaker"]);
     });

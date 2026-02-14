@@ -29,6 +29,14 @@ const mockCharacter: DdbCharacter = {
   ],
   bonusStats: [],
   overrideStats: [],
+  modifiers: {
+    race: [],
+    class: [],
+    background: [],
+    item: [],
+    feat: [],
+    condition: [],
+  },
   baseHitPoints: 40,
   bonusHitPoints: 5,
   overrideHitPoints: null,
@@ -59,12 +67,32 @@ const mockCharacter: DdbCharacter = {
   campaign: null,
 };
 
+// Character with actions for useAbility tests
+const mockCharacterWithActions: DdbCharacter = {
+  ...mockCharacter,
+  actions: {
+    class: [
+      {
+        id: 100,
+        entityTypeId: 200,
+        name: "Action Surge",
+        limitedUse: {
+          maxUses: 1,
+          numberUsed: 0,
+          resetTypeDescription: "Short Rest",
+        },
+      },
+    ],
+  },
+};
+
 describe("updateHp", () => {
   let mockClient: DdbClient;
 
   beforeEach(() => {
     mockClient = {
       get: vi.fn().mockResolvedValue(mockCharacter),
+      getRaw: vi.fn(),
       put: vi.fn().mockResolvedValue({}),
     } as unknown as DdbClient;
   });
@@ -301,6 +329,8 @@ describe("useAbility", () => {
 
   beforeEach(() => {
     mockClient = {
+      get: vi.fn().mockResolvedValue(mockCharacterWithActions),
+      getRaw: vi.fn(),
       put: vi.fn().mockResolvedValue({}),
     } as unknown as DdbClient;
   });
@@ -311,12 +341,19 @@ describe("useAbility", () => {
       abilityName: "Action Surge",
     });
 
+    expect(mockClient.get).toHaveBeenCalled();
     expect(mockClient.put).toHaveBeenCalledWith(
-      expect.stringContaining("/character/v5/character/123/action/limited-use"),
-      { abilityName: "Action Surge" },
+      expect.any(String),
+      expect.objectContaining({
+        characterId: 123,
+        id: "100",
+        entityTypeId: "200",
+        uses: 1,
+      }),
       ["character:123"]
     );
-    expect(result.content[0].text).toContain("Used ability: Action Surge");
+    expect(result.content[0].text).toContain("Action Surge");
+    expect(result.content[0].text).toContain("1/1 uses expended");
   });
 
   it("should reject empty ability name", async () => {

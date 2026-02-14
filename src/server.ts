@@ -32,8 +32,6 @@ import {
   getCondition,
   searchClasses,
 } from "./tools/reference.js";
-import { ENDPOINTS } from "./api/endpoints.js";
-import type { DdbCampaign } from "./types/api.js";
 
 export async function startServer(): Promise<void> {
   // Initialize cache instances
@@ -279,7 +277,7 @@ export async function startServer(): Promise<void> {
   // Register reference tools - spells
   server.tool(
     "search_spells",
-    "Search for spells by name, level, school, concentration, or ritual",
+    "Search the full spell compendium by name, level, school, concentration, or ritual",
     {
       name: z.string().optional().describe("Spell name (partial match)"),
       level: z.number().optional().describe("Spell level (0-9, 0=cantrip)"),
@@ -290,56 +288,24 @@ export async function startServer(): Promise<void> {
       concentration: z.boolean().optional().describe("Requires concentration"),
       ritual: z.boolean().optional().describe("Can be cast as ritual"),
     },
-    async (params) => {
-      // Get character IDs for searching spells
-      const campaignsResponse = await client.get<DdbCampaign[]>(
-        ENDPOINTS.campaign.list(),
-        "campaigns",
-        300_000
-      );
-      const characterIds = campaignsResponse.flatMap((campaign) =>
-        campaign.characters.map((char) => char.characterId)
-      );
-
-      return searchSpells(
-        client,
-        {
-          name: params.name,
-          level: params.level,
-          school: params.school,
-          concentration: params.concentration,
-          ritual: params.ritual,
-        },
-        characterIds
-      );
-    }
+    async (params) =>
+      searchSpells(client, {
+        name: params.name,
+        level: params.level,
+        school: params.school,
+        concentration: params.concentration,
+        ritual: params.ritual,
+      })
   );
 
   server.tool(
     "get_spell",
-    "Get full details for a specific spell by name",
+    "Get full details for a specific spell by name from the compendium",
     {
       spellName: z.string().describe("The spell name"),
     },
-    async (params) => {
-      // Get character IDs for searching spells
-      const campaignsResponse = await client.get<DdbCampaign[]>(
-        ENDPOINTS.campaign.list(),
-        "campaigns",
-        300_000
-      );
-      const characterIds = campaignsResponse.flatMap((campaign) =>
-        campaign.characters.map((char) => char.characterId)
-      );
-
-      return getSpell(
-        client,
-        {
-          spellName: params.spellName,
-        },
-        characterIds
-      );
-    }
+    async (params) =>
+      getSpell(client, { spellName: params.spellName })
   );
 
   // Register reference tools - monsters

@@ -24,6 +24,19 @@ export class DdbClient {
     return result;
   }
 
+  /**
+   * GET that returns the raw JSON without envelope unwrapping.
+   * Used for monster-service which has its own response format.
+   */
+  async getRaw<T>(url: string, cacheKey: string, ttl?: number): Promise<T> {
+    const cached = this.cache.get(cacheKey) as T | undefined;
+    if (cached !== undefined) return cached;
+
+    const result = await this.requestRaw<T>(url, { method: "GET" });
+    this.cache.set(cacheKey, result, ttl);
+    return result;
+  }
+
   async put<T>(url: string, body: unknown, invalidateCacheKeys?: string[]): Promise<T> {
     const result = await this.request<T>(url, {
       method: "PUT",
@@ -35,6 +48,29 @@ export class DdbClient {
       }
     }
     return result;
+  }
+
+  private async requestRaw<T>(url: string, options: RequestInit): Promise<T> {
+    await this.rateLimiter.acquire();
+
+    return this.circuitBreaker.execute(() =>
+      withRetry(async () => {
+        const headers = await this.buildHeaders(url);
+        const response = await fetch(url, { ...options, headers });
+
+        if (!response.ok) {
+          if (response.status === 401) {
+            this.authExpired = true;
+          }
+          throw new HttpError(
+            `D&D Beyond API error: ${response.status} ${response.statusText}`,
+            response.status,
+          );
+        }
+
+        return (await response.json()) as T;
+      })
+    );
   }
 
   private async request<T>(url: string, options: RequestInit): Promise<T> {
@@ -57,16 +93,25 @@ export class DdbClient {
 
         const json = await response.json();
 
-        // Character-service wraps responses in { id, success, message, data, pagination }.
-        // Unwrap the envelope so callers get the data directly.
-        if (json && typeof json === "object" && "success" in json && "data" in json) {
-          if (!json.success) {
-            throw new HttpError(
-              `D&D Beyond API error: ${json.message || "Unknown error"}`,
-              400,
-            );
+        // D&D Beyond APIs use two envelope formats:
+        //   Character-service: { id, success, message, data }
+        //   Campaign/Waterdeep: { status: "success", data }
+        // Unwrap both so callers always receive the data directly.
+        if (json && typeof json === "object" && "data" in json) {
+          // Character-service envelope: check `success` boolean
+          if ("success" in json) {
+            if (!json.success) {
+              throw new HttpError(
+                `D&D Beyond API error: ${json.message || "Unknown error"}`,
+                400,
+              );
+            }
+            return json.data as T;
           }
-          return json.data as T;
+          // Waterdeep envelope: check `status` string
+          if ("status" in json && json.status === "success") {
+            return json.data as T;
+          }
         }
 
         return json as T;
@@ -75,8 +120,11 @@ export class DdbClient {
   }
 
   private async buildHeaders(url: string): Promise<Record<string, string>> {
-    // character-service and auth-service use bearer tokens
-    if (url.includes("character-service.dndbeyond.com")) {
+    // character-service and monster-service use bearer tokens
+    if (
+      url.includes("character-service.dndbeyond.com") ||
+      url.includes("monster-service.dndbeyond.com")
+    ) {
       const token = await getCobaltToken();
       return {
         Authorization: `Bearer ${token}`,

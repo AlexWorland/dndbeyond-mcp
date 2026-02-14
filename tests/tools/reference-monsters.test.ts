@@ -3,55 +3,139 @@ import { searchMonsters, getMonster } from "../../src/tools/reference.js";
 import { DdbClient } from "../../src/api/client.js";
 import { MonsterSearchParams } from "../../src/types/reference.js";
 
+const MOCK_CONFIG = {
+  challengeRatings: [
+    { id: 5, value: 1, xp: 200, proficiencyBonus: 2 },
+    { id: 14, value: 10, xp: 5900, proficiencyBonus: 4 },
+  ],
+  monsterTypes: [
+    { id: 6, name: "Dragon" },
+    { id: 11, name: "Humanoid" },
+  ],
+  environments: [{ id: 7, name: "Mountain" }],
+  alignments: [{ id: 9, name: "Chaotic Evil" }],
+  damageTypes: [{ id: 1, name: "Fire" }],
+  senses: [{ id: 2, name: "Darkvision" }],
+};
+
+const MOCK_MONSTER = {
+  id: 17100,
+  name: "Goblin",
+  alignmentId: 9,
+  sizeId: 3,
+  typeId: 11,
+  armorClass: 15,
+  armorClassDescription: "(leather armor, shield)",
+  averageHitPoints: 7,
+  hitPointDice: { diceCount: 2, diceValue: 6, fixedValue: 0, diceString: "2d6" },
+  passivePerception: 9,
+  challengeRatingId: 5,
+  isHomebrew: false,
+  isLegendary: false,
+  isMythic: false,
+  isLegacy: false,
+  url: "",
+  avatarUrl: "",
+  stats: [
+    { statId: 1, value: 8 },
+    { statId: 2, value: 14 },
+    { statId: 3, value: 10 },
+    { statId: 4, value: 10 },
+    { statId: 5, value: 8 },
+    { statId: 6, value: 8 },
+  ],
+  skills: [{ skillId: 5, value: 4 }],
+  senses: [{ senseId: 2, notes: "60 ft." }],
+  savingThrows: [],
+  movements: [{ movementId: 1, speed: 30, notes: null }],
+  languages: [],
+  damageAdjustments: [],
+  conditionImmunities: [],
+  environments: [],
+  specialTraitsDescription: "<p><strong>Nimble Escape.</strong> The goblin can take the Disengage or Hide action as a bonus action.</p>",
+  actionsDescription: "<p><strong>Scimitar.</strong> Melee Weapon Attack</p>",
+  reactionsDescription: "",
+  legendaryActionsDescription: "",
+  mythicActionsDescription: "",
+  bonusActionsDescription: "",
+  lairDescription: "",
+  languageDescription: "Common, Goblin",
+  languageNote: "",
+  sensesHtml: "",
+  skillsHtml: "Stealth +6",
+  conditionImmunitiesHtml: "",
+};
+
 describe("searchMonsters", () => {
   let mockClient: DdbClient;
 
   beforeEach(() => {
     mockClient = {
       get: vi.fn(),
+      getRaw: vi.fn(),
     } as unknown as DdbClient;
   });
 
   it("shouldReturnFormattedListWhenMonstersFound", async () => {
-    const params: MonsterSearchParams = { name: "dragon" };
+    vi.mocked(mockClient.getRaw)
+      .mockResolvedValueOnce({
+        accessType: { "17100": 1 },
+        pagination: { take: 20, skip: 0, currentPage: 1, pages: 1, total: 1 },
+        data: [MOCK_MONSTER],
+      })
+      .mockResolvedValueOnce(MOCK_CONFIG);
 
-    const result = await searchMonsters(mockClient, params);
+    const result = await searchMonsters(mockClient, { name: "goblin" });
 
-    expect(result).toHaveProperty("content");
-    expect(Array.isArray(result.content)).toBe(true);
-    expect(result.content[0]).toHaveProperty("type", "text");
-    expect(result.content[0]).toHaveProperty("text");
     expect(result.content[0].text).toContain("Monster Search Results");
+    expect(result.content[0].text).toContain("Goblin");
   });
 
   it("shouldReturnNoResultsMessageWhenNoMonstersFound", async () => {
-    const params: MonsterSearchParams = { name: "nonexistent" };
+    vi.mocked(mockClient.getRaw)
+      .mockResolvedValueOnce({
+        accessType: {},
+        pagination: { take: 20, skip: 0, currentPage: 1, pages: 0, total: 0 },
+        data: [],
+      })
+      .mockResolvedValueOnce(MOCK_CONFIG);
 
-    const result = await searchMonsters(mockClient, params);
+    const result = await searchMonsters(mockClient, { name: "nonexistent" });
 
     expect(result.content[0].text).toContain("No monsters found");
   });
 
   it("shouldAcceptMultipleSearchParameters", async () => {
+    vi.mocked(mockClient.getRaw)
+      .mockResolvedValueOnce({
+        accessType: {},
+        pagination: { take: 20, skip: 0, currentPage: 1, pages: 0, total: 0 },
+        data: [],
+      })
+      .mockResolvedValueOnce(MOCK_CONFIG);
+
     const params: MonsterSearchParams = {
       name: "dragon",
       cr: 10,
       type: "dragon",
       size: "huge",
-      environment: "mountain",
     };
 
     const result = await searchMonsters(mockClient, params);
-
     expect(result).toHaveProperty("content");
     expect(result.content[0]).toHaveProperty("type", "text");
   });
 
   it("shouldAcceptEmptySearchParameters", async () => {
-    const params: MonsterSearchParams = {};
+    vi.mocked(mockClient.getRaw)
+      .mockResolvedValueOnce({
+        accessType: { "17100": 1 },
+        pagination: { take: 20, skip: 0, currentPage: 1, pages: 1, total: 1 },
+        data: [MOCK_MONSTER],
+      })
+      .mockResolvedValueOnce(MOCK_CONFIG);
 
-    const result = await searchMonsters(mockClient, params);
-
+    const result = await searchMonsters(mockClient, {});
     expect(result).toHaveProperty("content");
     expect(result.content[0]).toHaveProperty("type", "text");
   });
@@ -63,40 +147,50 @@ describe("getMonster", () => {
   beforeEach(() => {
     mockClient = {
       get: vi.fn(),
+      getRaw: vi.fn(),
     } as unknown as DdbClient;
   });
 
   it("shouldReturnNotFoundMessageWhenMonsterDoesNotExist", async () => {
-    const params = { monsterName: "Nonexistent Monster" };
+    vi.mocked(mockClient.getRaw).mockResolvedValueOnce({
+      accessType: {},
+      pagination: { take: 5, skip: 0, currentPage: 1, pages: 0, total: 0 },
+      data: [],
+    });
 
-    const result = await getMonster(mockClient, params);
+    const result = await getMonster(mockClient, { monsterName: "Nonexistent Monster" });
 
     expect(result.content[0].text).toContain("not found");
-    expect(result.content[0].text).toContain("Nonexistent Monster");
   });
 
   it("shouldReturnFormattedStatBlockStructure", async () => {
-    const params = { monsterName: "Adult Red Dragon" };
+    vi.mocked(mockClient.getRaw)
+      .mockResolvedValueOnce({
+        accessType: { "17100": 1 },
+        pagination: { take: 5, skip: 0, currentPage: 1, pages: 1, total: 1 },
+        data: [MOCK_MONSTER],
+      })
+      .mockResolvedValueOnce({ accessType: 1, data: MOCK_MONSTER })
+      .mockResolvedValueOnce(MOCK_CONFIG);
 
-    const result = await getMonster(mockClient, params);
+    const result = await getMonster(mockClient, { monsterName: "Goblin" });
 
-    expect(result).toHaveProperty("content");
-    expect(Array.isArray(result.content)).toBe(true);
-    expect(result.content[0]).toHaveProperty("type", "text");
-    expect(result.content[0]).toHaveProperty("text");
+    expect(result.content[0].text).toContain("Goblin");
+    expect(result.content[0].text).toContain("Armor Class");
+    expect(result.content[0].text).toContain("Hit Points");
   });
 
   it("shouldHandleMonsterNameCaseInsensitively", async () => {
-    const params1 = { monsterName: "DRAGON" };
-    const params2 = { monsterName: "dragon" };
-    const params3 = { monsterName: "Dragon" };
+    vi.mocked(mockClient.getRaw)
+      .mockResolvedValueOnce({
+        accessType: { "17100": 1 },
+        pagination: { take: 5, skip: 0, currentPage: 1, pages: 1, total: 1 },
+        data: [MOCK_MONSTER],
+      })
+      .mockResolvedValueOnce({ accessType: 1, data: MOCK_MONSTER })
+      .mockResolvedValueOnce(MOCK_CONFIG);
 
-    const result1 = await getMonster(mockClient, params1);
-    const result2 = await getMonster(mockClient, params2);
-    const result3 = await getMonster(mockClient, params3);
-
-    expect(result1).toHaveProperty("content");
-    expect(result2).toHaveProperty("content");
-    expect(result3).toHaveProperty("content");
+    const result = await getMonster(mockClient, { monsterName: "goblin" });
+    expect(result.content[0].text).toContain("Goblin");
   });
 });
