@@ -104,8 +104,8 @@ describe("updateHp", () => {
     });
 
     expect(mockClient.put).toHaveBeenCalledWith(
-      expect.stringContaining("/character/v5/character/123/life/hp/damage-taken"),
-      { removedHitPoints: 0 },
+      expect.stringContaining("/character/v5/life/hp/damage-taken"),
+      { characterId: 123, removedHitPoints: 0 },
       ["character:123"]
     );
     expect(result.content[0].text).toContain("Healed Test Character for 10 HP");
@@ -118,8 +118,8 @@ describe("updateHp", () => {
     });
 
     expect(mockClient.put).toHaveBeenCalledWith(
-      expect.stringContaining("/character/v5/character/123/life/hp/damage-taken"),
-      { removedHitPoints: 15 },
+      expect.stringContaining("/character/v5/life/hp/damage-taken"),
+      { characterId: 123, removedHitPoints: 15 },
       ["character:123"]
     );
     expect(result.content[0].text).toContain("Damaged Test Character for 5 HP");
@@ -133,7 +133,7 @@ describe("updateHp", () => {
 
     expect(mockClient.put).toHaveBeenCalledWith(
       expect.anything(),
-      { removedHitPoints: 45 },
+      { characterId: 123, removedHitPoints: 45 },
       expect.anything()
     );
   });
@@ -396,8 +396,8 @@ describe("updateHp with temporary HP", () => {
     });
 
     expect(mockClient.put).toHaveBeenCalledWith(
-      expect.stringContaining("/character/v5/character/123/life/hp/damage-taken"),
-      { removedHitPoints: 5, temporaryHitPoints: 10 },
+      expect.stringContaining("/character/v5/life/hp/damage-taken"),
+      { characterId: 123, removedHitPoints: 5, temporaryHitPoints: 10 },
       ["character:123"]
     );
     expect(result.content[0].text).toContain("(10 temp HP)");
@@ -410,8 +410,8 @@ describe("updateHp with temporary HP", () => {
     });
 
     expect(mockClient.put).toHaveBeenCalledWith(
-      expect.stringContaining("/character/v5/character/123/life/hp/damage-taken"),
-      { removedHitPoints: 5 },
+      expect.stringContaining("/character/v5/life/hp/damage-taken"),
+      { characterId: 123, removedHitPoints: 5 },
       ["character:123"]
     );
   });
@@ -425,7 +425,7 @@ describe("updateHp with temporary HP", () => {
 
     expect(mockClient.put).toHaveBeenCalledWith(
       expect.anything(),
-      { removedHitPoints: 10, temporaryHitPoints: 0 },
+      { characterId: 123, removedHitPoints: 10, temporaryHitPoints: 0 },
       ["character:123"]
     );
     expect(result.content[0].text).toContain("(0 temp HP)");

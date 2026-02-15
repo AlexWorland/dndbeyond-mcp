@@ -30,6 +30,9 @@ import {
   setRaceTraitChoice,
   setFeatChoice,
   resolveChoices,
+  setInspiration,
+  addCondition,
+  removeCondition,
   setSpecies,
   setAbilityScore,
   updateCharacterName,
@@ -172,6 +175,50 @@ export async function startServer(): Promise<void> {
   );
 
   server.tool(
+    "set_inspiration",
+    "Grant or remove inspiration on a character",
+    {
+      characterId: z.coerce.number().describe("The character ID"),
+      inspiration: z.boolean().describe("true to grant inspiration, false to remove it"),
+    },
+    async (params) =>
+      setInspiration(client, {
+        characterId: params.characterId,
+        inspiration: params.inspiration,
+      })
+  );
+
+  server.tool(
+    "add_condition",
+    "Apply a condition to a character. Condition IDs: 1=Blinded, 2=Charmed, 3=Deafened, 4=Frightened, 5=Grappled, 6=Incapacitated, 7=Invisible, 8=Paralyzed, 9=Petrified, 10=Poisoned, 11=Prone, 12=Restrained, 13=Stunned, 14=Unconscious, 15=Exhaustion (use level 1-6)",
+    {
+      characterId: z.coerce.number().describe("The character ID"),
+      conditionId: z.coerce.number().describe("Condition ID (1-15)"),
+      level: z.coerce.number().optional().describe("Exhaustion level (1-6). Only used for Exhaustion (conditionId=15)."),
+    },
+    async (params) =>
+      addCondition(client, {
+        characterId: params.characterId,
+        conditionId: params.conditionId,
+        level: params.level,
+      })
+  );
+
+  server.tool(
+    "remove_condition",
+    "Remove a condition from a character. Condition IDs: 1=Blinded, 2=Charmed, 3=Deafened, 4=Frightened, 5=Grappled, 6=Incapacitated, 7=Invisible, 8=Paralyzed, 9=Petrified, 10=Poisoned, 11=Prone, 12=Restrained, 13=Stunned, 14=Unconscious, 15=Exhaustion",
+    {
+      characterId: z.coerce.number().describe("The character ID"),
+      conditionId: z.coerce.number().describe("Condition ID (1-15)"),
+    },
+    async (params) =>
+      removeCondition(client, {
+        characterId: params.characterId,
+        conditionId: params.conditionId,
+      })
+  );
+
+  server.tool(
     "update_spell_slots",
     "Update used spell slots for a specific spell level",
     {
@@ -266,7 +313,7 @@ export async function startServer(): Promise<void> {
 
   server.tool(
     "long_rest",
-    "Perform a long rest: restores HP to full, resets spell slots, pact magic, and long-rest abilities",
+    "Perform a long rest: restores HP, spell slots, pact magic, limited-use abilities, hit dice, and death saves (server-side)",
     {
       characterId: z.coerce.number().describe("The character ID"),
     },
@@ -278,7 +325,7 @@ export async function startServer(): Promise<void> {
 
   server.tool(
     "short_rest",
-    "Perform a short rest: resets pact magic and short-rest abilities",
+    "Perform a short rest: resets pact magic, short-rest abilities, and handles hit dice (server-side)",
     {
       characterId: z.coerce.number().describe("The character ID"),
     },

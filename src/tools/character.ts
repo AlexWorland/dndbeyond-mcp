@@ -1129,65 +1129,129 @@ export async function updateHp(
   client: DdbClient,
   params: UpdateHpParams
 ): Promise<{ content: Array<{ type: "text"; text: string }> }> {
-  try {
-    const character = await client.get<DdbCharacter>(
-      ENDPOINTS.character.get(params.characterId),
-      `character:${params.characterId}`,
-      60_000
-    );
+  const character = await client.get<DdbCharacter>(
+    ENDPOINTS.character.get(params.characterId),
+    `character:${params.characterId}`,
+    60_000
+  );
 
-    const newRemovedHp = Math.max(
-      0,
-      Math.min(
-        calculateMaxHp(character),
-        character.removedHitPoints - params.hpChange
-      )
-    );
+  const newRemovedHp = Math.max(
+    0,
+    Math.min(
+      calculateMaxHp(character),
+      character.removedHitPoints - params.hpChange
+    )
+  );
 
-    const putBody: { removedHitPoints: number; temporaryHitPoints?: number } = {
-      removedHitPoints: newRemovedHp,
-    };
+  const putBody: { characterId: number; removedHitPoints: number; temporaryHitPoints?: number } = {
+    characterId: params.characterId,
+    removedHitPoints: newRemovedHp,
+  };
 
-    if (params.tempHp !== undefined) {
-      putBody.temporaryHitPoints = params.tempHp;
-    }
-
-    await client.put(
-      ENDPOINTS.character.updateHp(params.characterId),
-      putBody,
-      [`character:${params.characterId}`]
-    );
-
-    const action = params.hpChange > 0 ? "Healed" : "Damaged";
-    const amount = Math.abs(params.hpChange);
-    const newCurrent = calculateMaxHp(character) - newRemovedHp;
-
-    let text = `${action} ${character.name} for ${amount} HP. Current HP: ${newCurrent}/${calculateMaxHp(character)}`;
-    if (params.tempHp !== undefined) {
-      text += ` (${params.tempHp} temp HP)`;
-    }
-
-    return {
-      content: [
-        {
-          type: "text",
-          text,
-        },
-      ],
-    };
-  } catch (error) {
-    if (error instanceof HttpError && error.statusCode === 404) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: `⚠️  Character HP updates are temporarily unavailable.\n\nD&D Beyond has deprecated the v5 character write API endpoints. This feature cannot be used until D&D Beyond provides replacement endpoints.\n\nCharacter ID: ${params.characterId}\nRead operations still work normally.`,
-          },
-        ],
-      };
-    }
-    throw error;
+  if (params.tempHp !== undefined) {
+    putBody.temporaryHitPoints = params.tempHp;
   }
+
+  await client.put(
+    ENDPOINTS.character.updateHp(),
+    putBody,
+    [`character:${params.characterId}`]
+  );
+
+  const action = params.hpChange > 0 ? "Healed" : "Damaged";
+  const amount = Math.abs(params.hpChange);
+  const newCurrent = calculateMaxHp(character) - newRemovedHp;
+
+  let text = `${action} ${character.name} for ${amount} HP. Current HP: ${newCurrent}/${calculateMaxHp(character)}`;
+  if (params.tempHp !== undefined) {
+    text += ` (${params.tempHp} temp HP)`;
+  }
+
+  return {
+    content: [
+      {
+        type: "text",
+        text,
+      },
+    ],
+  };
+}
+
+interface SetInspirationParams {
+  characterId: number;
+  inspiration: boolean;
+}
+
+export async function setInspiration(
+  client: DdbClient,
+  params: SetInspirationParams
+): Promise<ToolResult> {
+  await client.put(
+    ENDPOINTS.character.setInspiration(),
+    { characterId: params.characterId, inspiration: params.inspiration },
+    [`character:${params.characterId}`]
+  );
+  const state = params.inspiration ? "granted" : "removed";
+  return { content: [{ type: "text", text: `Inspiration ${state} for character ${params.characterId}.` }] };
+}
+
+interface AddConditionParams {
+  characterId: number;
+  conditionId: number;
+  level?: number | null;
+}
+
+const CONDITION_NAMES: Record<number, string> = {
+  1: "Blinded", 2: "Charmed", 3: "Deafened", 4: "Frightened",
+  5: "Grappled", 6: "Incapacitated", 7: "Invisible", 8: "Paralyzed",
+  9: "Petrified", 10: "Poisoned", 11: "Prone", 12: "Restrained",
+  13: "Stunned", 14: "Unconscious", 15: "Exhaustion",
+};
+
+export async function addCondition(
+  client: DdbClient,
+  params: AddConditionParams
+): Promise<ToolResult> {
+  const character = await client.get<DdbCharacter>(
+    ENDPOINTS.character.get(params.characterId),
+    `character:${params.characterId}`,
+    60_000
+  );
+  const maxHp = calculateMaxHp(character);
+
+  await client.put(
+    ENDPOINTS.character.condition(),
+    {
+      characterId: params.characterId,
+      id: params.conditionId,
+      level: params.level ?? null,
+      totalHp: maxHp,
+    },
+    [`character:${params.characterId}`]
+  );
+
+  const name = CONDITION_NAMES[params.conditionId] ?? `Condition ${params.conditionId}`;
+  const levelText = params.level ? ` (level ${params.level})` : "";
+  return { content: [{ type: "text", text: `Added ${name}${levelText} to character ${params.characterId}.` }] };
+}
+
+interface RemoveConditionParams {
+  characterId: number;
+  conditionId: number;
+}
+
+export async function removeCondition(
+  client: DdbClient,
+  params: RemoveConditionParams
+): Promise<ToolResult> {
+  await client.delete(
+    ENDPOINTS.character.condition(),
+    { characterId: params.characterId, id: params.conditionId },
+    [`character:${params.characterId}`]
+  );
+
+  const name = CONDITION_NAMES[params.conditionId] ?? `Condition ${params.conditionId}`;
+  return { content: [{ type: "text", text: `Removed ${name} from character ${params.characterId}.` }] };
 }
 
 interface UpdateSpellSlotsParams {
@@ -1464,173 +1528,45 @@ export async function longRest(
   client: DdbClient,
   params: LongRestParams
 ): Promise<{ content: Array<{ type: "text"; text: string }> }> {
-  try {
-    const character = await client.get<DdbCharacter>(
-      ENDPOINTS.character.get(params.characterId),
-      `character:${params.characterId}`,
-      60_000
-    );
+  // Server-side long rest handles all resets atomically:
+  // HP, spell slots, pact magic, limited-use abilities, hit dice, death saves
+  await client.get<unknown>(
+    ENDPOINTS.character.rest.long(params.characterId),
+    `rest:long:${params.characterId}:${Date.now()}`,
+    0
+  );
+  client.invalidateCache(`character:${params.characterId}`);
 
-    const summary: string[] = [`Long rest completed for ${character.name}:`];
-    const maxHp = calculateMaxHp(character);
-
-    // Reset HP
-    await client.put(
-      ENDPOINTS.character.updateHp(params.characterId),
-      { removedHitPoints: 0, temporaryHitPoints: 0 },
-      [`character:${params.characterId}`]
-    );
-    summary.push(`\u2022 HP restored to full (${maxHp}/${maxHp})`);
-
-    // Reset spell slots (levels 1-9)
-    const FULL_CASTERS = ["Wizard", "Sorcerer", "Bard", "Cleric", "Druid"];
-    const HALF_CASTERS = ["Paladin", "Ranger", "Artificer"];
-    const hasSpellSlots = character.classes.some(cls =>
-      FULL_CASTERS.includes(cls.definition.name) || HALF_CASTERS.includes(cls.definition.name)
-    );
-    if (hasSpellSlots) {
-      for (let level = 1; level <= 9; level++) {
-        await client.put(
-          ENDPOINTS.character.updateSpellSlots(params.characterId),
-          { level, used: 0 },
-          [`character:${params.characterId}`]
-        );
-      }
-      summary.push("\u2022 Spell slots reset (levels 1-9)");
-    }
-
-    // Reset pact magic
-    const hasWarlock = character.classes.some(cls => cls.definition.name === "Warlock");
-    if (hasWarlock) {
-      await client.put(
-        ENDPOINTS.character.updatePactMagic(params.characterId),
-        { used: 0 },
-        [`character:${params.characterId}`]
-      );
-      summary.push("\u2022 Pact magic reset");
-    }
-
-    // Reset long-rest abilities
-    const longRestAbilities: string[] = [];
-    const actions = character.actions ?? {};
-    for (const list of Object.values(actions)) {
-      if (!Array.isArray(list)) continue;
-      for (const action of list) {
-        if (action.limitedUse && action.limitedUse.resetType === 1) {
-          await client.put(
-            ENDPOINTS.character.updateLimitedUse(),
-            {
-              characterId: params.characterId,
-              id: String(action.id),
-              entityTypeId: String(action.entityTypeId),
-              uses: 0,
-            },
-            [`character:${params.characterId}`]
-          );
-          longRestAbilities.push(action.name);
-        }
-      }
-    }
-    if (longRestAbilities.length > 0) {
-      summary.push(`\u2022 Long-rest abilities reset: ${longRestAbilities.join(", ")}`);
-    }
-
-    return {
-      content: [
-        {
-          type: "text",
-          text: summary.join("\n"),
-        },
-      ],
-    };
-  } catch (error) {
-    if (error instanceof HttpError && error.statusCode === 404) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: `⚠️  Long rest operations are temporarily unavailable.\n\nD&D Beyond has deprecated the v5 character write API endpoints. This feature cannot be used until D&D Beyond provides replacement endpoints.\n\nCharacter ID: ${params.characterId}\nRead operations still work normally.`,
-          },
-        ],
-      };
-    }
-    throw error;
-  }
+  return {
+    content: [
+      {
+        type: "text",
+        text: `Long rest completed for character ${params.characterId}. All HP, spell slots, and long-rest abilities have been restored.`,
+      },
+    ],
+  };
 }
 
 export async function shortRest(
   client: DdbClient,
   params: ShortRestParams
 ): Promise<{ content: Array<{ type: "text"; text: string }> }> {
-  try {
-    const character = await client.get<DdbCharacter>(
-      ENDPOINTS.character.get(params.characterId),
-      `character:${params.characterId}`,
-      60_000
-    );
+  // Server-side short rest handles pact magic, short-rest abilities, hit dice
+  await client.get<unknown>(
+    ENDPOINTS.character.rest.short(params.characterId),
+    `rest:short:${params.characterId}:${Date.now()}`,
+    0
+  );
+  client.invalidateCache(`character:${params.characterId}`);
 
-    const summary: string[] = [`Short rest completed for ${character.name}:`];
-
-    // Reset pact magic
-    const hasWarlock = character.classes.some(cls => cls.definition.name === "Warlock");
-    if (hasWarlock) {
-      await client.put(
-        ENDPOINTS.character.updatePactMagic(params.characterId),
-        { used: 0 },
-        [`character:${params.characterId}`]
-      );
-      summary.push("\u2022 Pact magic reset");
-    }
-
-    // Reset short-rest abilities
-    const shortRestAbilities: string[] = [];
-    const actions = character.actions ?? {};
-    for (const list of Object.values(actions)) {
-      if (!Array.isArray(list)) continue;
-      for (const action of list) {
-        if (action.limitedUse && action.limitedUse.resetType === 2) {
-          await client.put(
-            ENDPOINTS.character.updateLimitedUse(),
-            {
-              characterId: params.characterId,
-              id: String(action.id),
-              entityTypeId: String(action.entityTypeId),
-              uses: 0,
-            },
-            [`character:${params.characterId}`]
-          );
-          shortRestAbilities.push(action.name);
-        }
-      }
-    }
-    if (shortRestAbilities.length > 0) {
-      summary.push(`\u2022 Short-rest abilities reset: ${shortRestAbilities.join(", ")}`);
-    }
-
-    // Note about hit dice
-    summary.push("\u2022 Hit dice spending not available via API");
-
-    return {
-      content: [
-        {
-          type: "text",
-          text: summary.join("\n"),
-        },
-      ],
-    };
-  } catch (error) {
-    if (error instanceof HttpError && error.statusCode === 404) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: `⚠️  Short rest operations are temporarily unavailable.\n\nD&D Beyond has deprecated the v5 character write API endpoints. This feature cannot be used until D&D Beyond provides replacement endpoints.\n\nCharacter ID: ${params.characterId}\nRead operations still work normally.`,
-          },
-        ],
-      };
-    }
-    throw error;
-  }
+  return {
+    content: [
+      {
+        type: "text",
+        text: `Short rest completed for character ${params.characterId}. Pact magic and short-rest abilities have been restored.`,
+      },
+    ],
+  };
 }
 
 interface CastSpellParams {

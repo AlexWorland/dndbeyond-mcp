@@ -15,6 +15,10 @@ export class DdbClient {
     return this.authExpired;
   }
 
+  invalidateCache(key: string): void {
+    this.cache.invalidate(key);
+  }
+
   async get<T>(url: string, cacheKey: string, ttl?: number): Promise<T> {
     const cached = this.cache.get(cacheKey) as T | undefined;
     if (cached !== undefined) return cached;
