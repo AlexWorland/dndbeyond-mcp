@@ -26,6 +26,10 @@ import {
   addClass,
   setBackground,
   setBackgroundChoice,
+  setClassFeatureChoice,
+  setRaceTraitChoice,
+  setFeatChoice,
+  resolveChoices,
   setSpecies,
   setAbilityScore,
   updateCharacterName,
@@ -373,6 +377,82 @@ export async function startServer(): Promise<void> {
         type: params.type,
         choiceKey: params.choiceKey,
         choiceValue: params.choiceValue,
+      })
+  );
+
+  server.tool(
+    "set_class_feature_choice",
+    "Resolve a class feature choice (e.g., warlock invocation, fighting style). Get choice data from the character's choices.class array.",
+    {
+      characterId: z.coerce.number().describe("The character ID"),
+      classId: z.coerce.number().describe("The class definition ID"),
+      classFeatureId: z.coerce.number().describe("The class feature component ID"),
+      classMappingId: z.coerce.number().describe("The character's class mapping ID"),
+      type: z.coerce.number().describe("Choice type from the choice object"),
+      choiceKey: z.string().describe("Choice key identifier from the choice object"),
+      choiceValue: z.coerce.number().describe("Selected option ID"),
+    },
+    async (params) =>
+      setClassFeatureChoice(client, {
+        characterId: params.characterId,
+        classId: params.classId,
+        classFeatureId: params.classFeatureId,
+        classMappingId: params.classMappingId,
+        type: params.type,
+        choiceKey: params.choiceKey,
+        choiceValue: params.choiceValue,
+      })
+  );
+
+  server.tool(
+    "set_race_trait_choice",
+    "Resolve a race/species trait choice (e.g., giant ancestry, ability score increase, language). Get choice data from the character's choices.race array.",
+    {
+      characterId: z.coerce.number().describe("The character ID"),
+      racialTraitId: z.coerce.number().describe("The racial trait component ID"),
+      type: z.coerce.number().describe("Choice type from the choice object"),
+      choiceKey: z.string().describe("Choice key identifier from the choice object"),
+      choiceValue: z.coerce.number().describe("Selected option ID"),
+    },
+    async (params) =>
+      setRaceTraitChoice(client, {
+        characterId: params.characterId,
+        racialTraitId: params.racialTraitId,
+        type: params.type,
+        choiceKey: params.choiceKey,
+        choiceValue: params.choiceValue,
+      })
+  );
+
+  server.tool(
+    "set_feat_choice",
+    "Resolve a feat choice (e.g., ability score increase option on an origin feat). Get choice data from the character's choices.feat array.",
+    {
+      characterId: z.coerce.number().describe("The character ID"),
+      featId: z.coerce.number().describe("The feat component ID"),
+      type: z.coerce.number().describe("Choice type from the choice object"),
+      choiceKey: z.string().describe("Choice key identifier from the choice object"),
+      choiceValue: z.coerce.number().describe("Selected option ID"),
+    },
+    async (params) =>
+      setFeatChoice(client, {
+        characterId: params.characterId,
+        featId: params.featId,
+        type: params.type,
+        choiceKey: params.choiceKey,
+        choiceValue: params.choiceValue,
+      })
+  );
+
+  server.tool(
+    "resolve_choices",
+    "Auto-resolve all unresolved builder choices on a character by picking the first available option for each. Handles cascading choices (resolving one may unlock more). Use after create_character to make the character builder-complete.",
+    {
+      characterId: z.coerce.number().describe("The character ID"),
+    },
+    async (params) =>
+      resolveChoices(client, {
+        characterId: params.characterId,
       })
   );
 

@@ -51,7 +51,7 @@ export interface DdbRace {
 
 export interface DdbClass {
   id: number;
-  definition: { name: string };
+  definition: { id: number; name: string };
   subclassDefinition: { name: string; classFeatures: DdbClassFeature[] } | null;
   level: number;
   isStartingClass: boolean;

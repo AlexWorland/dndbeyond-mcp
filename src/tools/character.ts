@@ -2029,3 +2029,225 @@ export async function updateCharacterName(
   );
   return { content: [{ type: "text", text: `Updated character ${params.characterId} name to "${params.name}".` }] };
 }
+
+// ============================================================================
+// CHOICE RESOLUTION
+// ============================================================================
+
+interface SetClassFeatureChoiceParams {
+  characterId: number;
+  classId: number;
+  classFeatureId: number;
+  classMappingId: number;
+  type: number;
+  choiceKey: string;
+  choiceValue: number;
+}
+
+export async function setClassFeatureChoice(
+  client: DdbClient,
+  params: SetClassFeatureChoiceParams
+): Promise<ToolResult> {
+  await client.put(
+    ENDPOINTS.character.setClassFeatureChoice(),
+    {
+      characterId: params.characterId,
+      classId: params.classId,
+      classFeatureId: params.classFeatureId,
+      classMappingId: params.classMappingId,
+      type: params.type,
+      choiceKey: params.choiceKey,
+      choiceValue: params.choiceValue,
+    },
+    [`character:${params.characterId}`]
+  );
+  return { content: [{ type: "text", text: `Set class feature choice on character ${params.characterId}.` }] };
+}
+
+interface SetRaceTraitChoiceParams {
+  characterId: number;
+  racialTraitId: number;
+  type: number;
+  choiceKey: string;
+  choiceValue: number;
+}
+
+export async function setRaceTraitChoice(
+  client: DdbClient,
+  params: SetRaceTraitChoiceParams
+): Promise<ToolResult> {
+  await client.put(
+    ENDPOINTS.character.setRaceTraitChoice(),
+    {
+      characterId: params.characterId,
+      racialTraitId: params.racialTraitId,
+      type: params.type,
+      choiceKey: params.choiceKey,
+      choiceValue: params.choiceValue,
+    },
+    [`character:${params.characterId}`]
+  );
+  return { content: [{ type: "text", text: `Set race trait choice on character ${params.characterId}.` }] };
+}
+
+interface SetFeatChoiceParams {
+  characterId: number;
+  featId: number;
+  type: number;
+  choiceKey: string;
+  choiceValue: number;
+}
+
+export async function setFeatChoice(
+  client: DdbClient,
+  params: SetFeatChoiceParams
+): Promise<ToolResult> {
+  await client.put(
+    ENDPOINTS.character.setFeatChoice(),
+    {
+      characterId: params.characterId,
+      id: params.featId,
+      type: params.type,
+      choiceKey: params.choiceKey,
+      choiceValue: params.choiceValue,
+    },
+    [`character:${params.characterId}`]
+  );
+  return { content: [{ type: "text", text: `Set feat choice on character ${params.characterId}.` }] };
+}
+
+interface ResolveChoicesParams {
+  characterId: number;
+}
+
+export async function resolveChoices(
+  client: DdbClient,
+  params: ResolveChoicesParams
+): Promise<ToolResult> {
+  const MAX_ITERATIONS = 8;
+  const resolved: string[] = [];
+  const skipped: string[] = [];
+
+  for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
+    const char = await client.get<DdbCharacter>(
+      ENDPOINTS.character.get(params.characterId),
+      `resolve:${params.characterId}:${Date.now()}`,
+      1 // no cache
+    );
+
+    // Build choiceDefinitions lookup
+    const choiceDefs = (char as any).choices?.choiceDefinitions ?? [];
+    const defMap = new Map<string, any[]>();
+    for (const cd of choiceDefs) {
+      if (cd.options?.length) defMap.set(cd.id, cd.options);
+    }
+
+    // Gather unresolved choices
+    const choices = (char as any).choices ?? {};
+    const unresolved: Array<{ category: string; choice: any }> = [];
+    for (const [key, val] of Object.entries(choices)) {
+      if (key === "choiceDefinitions") continue;
+      const arr = val as any[];
+      if (!Array.isArray(arr)) continue;
+      for (const c of arr) {
+        if (!c.optionValue) unresolved.push({ category: key, choice: c });
+      }
+    }
+
+    if (unresolved.length === 0) break;
+
+    let progressMade = false;
+    const charClass = char.classes?.[0];
+    const classId = charClass?.definition?.id;
+    const classMappingId = charClass?.id;
+
+    for (const { category, choice } of unresolved) {
+      // Find option ID from optionIds or choiceDefinitions
+      let optionId: number | null = null;
+      if (choice.optionIds?.length > 0) {
+        optionId = choice.optionIds[0];
+      } else {
+        const defKey = `${choice.componentTypeId}-${choice.type}`;
+        const options = defMap.get(defKey);
+        if (options?.length) {
+          // Prefer default if specified
+          if (choice.defaultSubtypes?.length > 0) {
+            const match = options.find((o: any) => o.label === choice.defaultSubtypes[0]);
+            optionId = match?.id ?? options[0].id;
+          } else {
+            optionId = options[0].id;
+          }
+        }
+      }
+
+      if (!optionId) {
+        skipped.push(`${category}:${choice.id}`);
+        continue;
+      }
+
+      try {
+        switch (category) {
+          case "background":
+            await client.put(ENDPOINTS.character.setBackgroundChoice(), {
+              characterId: params.characterId, type: choice.type,
+              choiceKey: choice.id, choiceValue: optionId,
+            }, [`character:${params.characterId}`]);
+            break;
+          case "class":
+            await client.put(ENDPOINTS.character.setClassFeatureChoice(), {
+              characterId: params.characterId, classId, type: choice.type,
+              choiceKey: choice.id, choiceValue: optionId,
+              classFeatureId: choice.componentId, classMappingId,
+            }, [`character:${params.characterId}`]);
+            break;
+          case "race":
+            await client.put(ENDPOINTS.character.setRaceTraitChoice(), {
+              characterId: params.characterId, type: choice.type,
+              choiceKey: choice.id, choiceValue: optionId,
+              racialTraitId: choice.componentId,
+            }, [`character:${params.characterId}`]);
+            break;
+          case "feat":
+            await client.put(ENDPOINTS.character.setFeatChoice(), {
+              characterId: params.characterId, id: choice.componentId,
+              type: choice.type, choiceKey: choice.id, choiceValue: optionId,
+            }, [`character:${params.characterId}`]);
+            break;
+          default:
+            skipped.push(`${category}:${choice.id}`);
+            continue;
+        }
+        resolved.push(`${category}: ${choice.label || choice.id}`);
+        progressMade = true;
+      } catch {
+        skipped.push(`${category}:${choice.id}`);
+      }
+    }
+
+    if (!progressMade) break;
+  }
+
+  // Final count
+  const finalChar = await client.get<DdbCharacter>(
+    ENDPOINTS.character.get(params.characterId),
+    `resolve-final:${params.characterId}:${Date.now()}`,
+    1
+  );
+  const finalChoices = (finalChar as any).choices ?? {};
+  let remaining = 0;
+  for (const [key, val] of Object.entries(finalChoices)) {
+    if (key === "choiceDefinitions") continue;
+    const arr = val as any[];
+    if (!Array.isArray(arr)) continue;
+    remaining += arr.filter((c: any) => !c.optionValue).length;
+  }
+
+  const lines = [
+    `Auto-resolved ${resolved.length} choices on ${finalChar.name}.`,
+    ...(resolved.length > 0 ? [`Resolved: ${resolved.join(", ")}`] : []),
+    ...(skipped.length > 0 ? [`Skipped (no options): ${skipped.length}`] : []),
+    ...(remaining > 0 ? [`Remaining unresolved: ${remaining}`] : ["All choices resolved."]),
+  ];
+
+  return { content: [{ type: "text", text: lines.join("\n") }] };
+}
