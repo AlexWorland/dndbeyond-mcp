@@ -17,6 +17,7 @@ interface GameConfig {
   alignments: Array<{ id: number; name: string }>;
   damageTypes: Array<{ id: number; name: string }>;
   senses: Array<{ id: number; name: string }>;
+  sources?: Array<{ id: number; name: string }>;
 }
 
 const SIZE_MAP: Record<number, string> = {
@@ -29,6 +30,25 @@ const STAT_NAMES: Record<number, string> = {
 
 const MOVEMENT_NAMES: Record<number, string> = {
   1: "walk", 2: "burrow", 3: "climb", 4: "fly", 5: "swim",
+};
+
+// Hardcoded source book map as fallback if config doesn't have sources
+const SOURCE_MAP: Record<string, number> = {
+  "monster manual": 1,
+  "volos guide": 2,
+  "volos guide to monsters": 2,
+  "mordenkainens tome": 3,
+  "mordenkainens tome of foes": 3,
+  "fizbans treasury": 4,
+  "fizbans treasury of dragons": 4,
+  "tomb of annihilation": 9,
+  "curse of strahd": 1,
+  "hoard of the dragon queen": 1,
+  "princes of the apocalypse": 2,
+  "out of the abyss": 2,
+  "storm kings thunder": 3,
+  "tales from the yawning portal": 7,
+  "tomb of horrors": 9,
 };
 
 let cachedConfig: GameConfig | null = null;
@@ -103,13 +123,34 @@ interface DdbMonster {
 const SPELLCASTING_CLASS_IDS = [1, 2, 3, 4, 5, 6, 7, 8]; // Bard through Wizard
 
 /**
- * Loads the full spell compendium by querying always-known-spells for all classes.
- * Deduplicates by spell definition ID.
+ * Loads the full spell compendium by querying always-known-spells and always-prepared-spells for all classes.
+ * Queries both classLevel=1 (for cantrips/level 0 spells) and classLevel=20 (for levels 1-9).
+ * Deduplicates by spell definition name.
  */
 async function loadSpellCompendium(client: DdbClient): Promise<DdbSpell[]> {
   const allSpells = new Map<string, DdbSpell>();
+  let failureCount = 0;
+  const totalRequests = SPELLCASTING_CLASS_IDS.length * 4; // 2 for known, 2 for prepared
 
   for (const classId of SPELLCASTING_CLASS_IDS) {
+    // Fetch cantrips (level 0) by querying at classLevel=1
+    try {
+      const cantrips = await client.get<DdbSpell[]>(
+        ENDPOINTS.gameData.alwaysKnownSpells(classId, 1),
+        `spell-compendium:class:${classId}:cantrips`,
+        86_400_000, // 24h
+      );
+
+      for (const spell of cantrips ?? []) {
+        if (spell.definition?.name && !allSpells.has(spell.definition.name)) {
+          allSpells.set(spell.definition.name, spell);
+        }
+      }
+    } catch {
+      failureCount++;
+    }
+
+    // Fetch higher-level spells (levels 1-9) by querying at classLevel=20
     try {
       const spells = await client.get<DdbSpell[]>(
         ENDPOINTS.gameData.alwaysKnownSpells(classId, 20),
@@ -123,8 +164,46 @@ async function loadSpellCompendium(client: DdbClient): Promise<DdbSpell[]> {
         }
       }
     } catch {
-      continue;
+      failureCount++;
     }
+
+    // Fetch always-prepared cantrips (level 0) by querying at classLevel=1
+    try {
+      const preparedCantrips = await client.get<DdbSpell[]>(
+        ENDPOINTS.gameData.alwaysPreparedSpells(classId, 1),
+        `spell-compendium:class:${classId}:prepared-cantrips`,
+        86_400_000, // 24h
+      );
+
+      for (const spell of preparedCantrips ?? []) {
+        if (spell.definition?.name && !allSpells.has(spell.definition.name)) {
+          allSpells.set(spell.definition.name, spell);
+        }
+      }
+    } catch {
+      failureCount++;
+    }
+
+    // Fetch always-prepared spells (levels 1-9) by querying at classLevel=20
+    try {
+      const preparedSpells = await client.get<DdbSpell[]>(
+        ENDPOINTS.gameData.alwaysPreparedSpells(classId, 20),
+        `spell-compendium:class:${classId}:prepared`,
+        86_400_000, // 24h
+      );
+
+      for (const spell of preparedSpells ?? []) {
+        if (spell.definition?.name && !allSpells.has(spell.definition.name)) {
+          allSpells.set(spell.definition.name, spell);
+        }
+      }
+    } catch {
+      failureCount++;
+    }
+  }
+
+  if (failureCount === totalRequests) {
+    throw new Error("Failed to load spell compendium: all API requests failed. Check your authentication or try again later.");
   }
 
   return Array.from(allSpells.values());
@@ -139,7 +218,13 @@ export async function searchSpells(
   params: SpellSearchParams,
   _characterIds?: number[]
 ): Promise<ToolResult> {
-  const allSpells = await loadSpellCompendium(client);
+  let allSpells: DdbSpell[];
+  try {
+    allSpells = await loadSpellCompendium(client);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to load spell compendium";
+    return { content: [{ type: "text", text: message }] };
+  }
 
   let matchedSpells = allSpells;
 
@@ -214,7 +299,13 @@ export async function getSpell(
   _characterIds?: number[]
 ): Promise<ToolResult> {
   const searchName = params.spellName.toLowerCase();
-  const allSpells = await loadSpellCompendium(client);
+  let allSpells: DdbSpell[];
+  try {
+    allSpells = await loadSpellCompendium(client);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to load spell compendium";
+    return { content: [{ type: "text", text: message }] };
+  }
 
   // Exact match first, then partial
   let spell = allSpells.find(
@@ -248,7 +339,17 @@ function formatSpellDetails(spell: DdbSpell): ToolResult {
     .filter(Boolean)
     .join(", ");
 
-  const ACTIVATION_TYPES: Record<number, string> = { 1: "Action", 3: "Bonus Action", 6: "Reaction" };
+  const ACTIVATION_TYPES: Record<number, string> = {
+    0: "No Action",
+    1: "Action",
+    2: "No Action",
+    3: "Bonus Action",
+    4: "Reaction",
+    5: "Special",
+    6: "Minute",
+    7: "Hour",
+    8: "Special",
+  };
   const castingTime = def.activation
     ? `${def.activation.activationTime} ${ACTIVATION_TYPES[def.activation.activationType] ?? "Action"}`
     : "1 Action";
@@ -286,7 +387,7 @@ function formatSpellDetails(spell: DdbSpell): ToolResult {
     `**Range:** ${range}`,
     `**Components:** ${components}`,
     `**Duration:** ${duration}\n`,
-    def.description,
+    stripHtml(def.description),
   ];
 
   return {
@@ -325,24 +426,77 @@ function abilityMod(score: number): string {
 
 /**
  * Search for monsters by name.
+ * When CR/type/size filters are provided without a name search, fetches multiple pages
+ * to improve match reliability (up to 200 monsters across 10 pages).
  */
 export async function searchMonsters(
   client: DdbClient,
   params: MonsterSearchParams
 ): Promise<ToolResult> {
   const searchTerm = params.name || "";
-  const page = params.page ?? 1;
-  const skip = (page - 1) * 20;
-  const url = ENDPOINTS.monster.search(searchTerm, skip, 20, params.showHomebrew);
-  const cacheKey = `monsters:search:${JSON.stringify(params)}`;
+  const hasFilters = params.cr !== undefined || params.type !== undefined || params.size !== undefined;
+  const shouldPaginate = hasFilters && !searchTerm;
 
-  const response = await client.getRaw<MonsterServiceResponse>(url, cacheKey, 86_400_000);
   const config = await getGameConfig(client);
-
   const crMap = new Map(config.challengeRatings.map((cr) => [cr.id, cr]));
   const typeMap = new Map(config.monsterTypes.map((t) => [t.id, t.name]));
 
-  let monsters = response.data ?? [];
+  // Resolve source name to ID if provided
+  let sourceId: string | undefined;
+  if (params.source) {
+    const sourceLower = params.source.toLowerCase().trim();
+
+    // Try config sources first
+    if (config.sources) {
+      const configSource = config.sources.find((s) =>
+        s.name.toLowerCase().includes(sourceLower) || sourceLower.includes(s.name.toLowerCase())
+      );
+      if (configSource) {
+        sourceId = configSource.id.toString();
+      }
+    }
+
+    // Fallback to hardcoded map
+    if (!sourceId) {
+      const mappedId = SOURCE_MAP[sourceLower];
+      if (mappedId) {
+        sourceId = mappedId.toString();
+      }
+    }
+  }
+
+  let allMonsters: DdbMonster[] = [];
+  let totalInDataset = 0;
+  let pagesSearched = 0;
+  const maxPages = shouldPaginate ? 10 : 1; // Fetch up to 10 pages (200 results) when filtering
+
+  // Fetch multiple pages if we're filtering without a name search
+  for (let pageIdx = 0; pageIdx < maxPages; pageIdx++) {
+    const skip = pageIdx * 20;
+    const url = ENDPOINTS.monster.search(searchTerm, skip, 20, params.showHomebrew, sourceId);
+    const cacheKey = `monsters:search:${searchTerm}:${skip}:${params.showHomebrew ?? false}:${sourceId ?? ""}`;
+
+    try {
+      const response = await client.getRaw<MonsterServiceResponse>(url, cacheKey, 86_400_000);
+      totalInDataset = response.pagination.total;
+
+      if (!response.data || response.data.length === 0) {
+        break; // No more results
+      }
+
+      allMonsters.push(...response.data);
+      pagesSearched++;
+
+      // Stop if we've reached the end of available data
+      if (allMonsters.length >= totalInDataset) {
+        break;
+      }
+    } catch {
+      break; // Stop on error
+    }
+  }
+
+  let monsters = allMonsters;
 
   // Client-side filter by CR if requested
   if (params.cr !== undefined) {
@@ -371,15 +525,23 @@ export async function searchMonsters(
   }
 
   if (monsters.length === 0) {
+    const hint = shouldPaginate
+      ? "\n\nNote: CR/type/size filters were applied to a limited dataset. For best results, combine filters with a name search term."
+      : "";
     return {
-      content: [{ type: "text", text: "No monsters found matching the search criteria." }],
+      content: [{ type: "text", text: `No monsters found matching the search criteria.${hint}` }],
     };
   }
 
-  const pageStart = skip + 1;
-  const pageEnd = Math.min(skip + monsters.length, response.pagination.total);
-  const totalPages = Math.ceil(response.pagination.total / 20);
-  const lines = [`# Monster Search Results (showing ${pageStart}-${pageEnd} of ${response.pagination.total} total, Page ${page} of ${totalPages})\n`];
+  const searchInfo = shouldPaginate
+    ? `searched ${allMonsters.length} of ${totalInDataset} total monsters across ${pagesSearched} pages`
+    : `showing results from page 1`;
+
+  const lines = [`# Monster Search Results (${monsters.length} matches, ${searchInfo})\n`];
+
+  if (shouldPaginate && allMonsters.length < totalInDataset) {
+    lines.push(`*Note: Filters applied to the first ${allMonsters.length} monsters. For comprehensive results, add a name search term.*\n`);
+  }
 
   for (const m of monsters) {
     const cr = crMap.get(m.challengeRatingId);

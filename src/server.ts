@@ -40,14 +40,8 @@ import {
 } from "./tools/reference.js";
 
 export async function startServer(): Promise<void> {
-  // Initialize cache instances
-  const characterCache = new TtlCache<unknown>(60_000); // 60s TTL
-  const campaignCache = new TtlCache<unknown>(300_000); // 5min TTL
-  const referenceCache = new TtlCache<unknown>(86_400_000); // 24h TTL
-
-  // Note: All caches share the same underlying cache for simplicity in this implementation
-  // In production, you might want separate cache instances for better isolation
-  const cache = characterCache;
+  // Initialize cache instance
+  const cache = new TtlCache<unknown>(60_000); // 60s TTL
 
   // Initialize resilience components
   const circuitBreaker = new CircuitBreaker(5, 30_000); // 5 failures, 30s cooldown
@@ -89,7 +83,7 @@ export async function startServer(): Promise<void> {
     "get_character",
     "Get full character sheet details for a specific character by ID or name",
     {
-      characterId: z.number().optional().describe("The character ID"),
+      characterId: z.coerce.number().optional().describe("The character ID"),
       characterName: z
         .string()
         .optional()
@@ -113,7 +107,7 @@ export async function startServer(): Promise<void> {
     "get_character_sheet",
     "Get a comprehensive character sheet with stats, saves, skills, features, and resources. More detailed than get_character.",
     {
-      characterId: z.number().optional().describe("The character ID"),
+      characterId: z.coerce.number().optional().describe("The character ID"),
       characterName: z
         .string()
         .optional()
@@ -130,7 +124,7 @@ export async function startServer(): Promise<void> {
     "get_definition",
     "Look up a specific feat, spell, class feature, racial trait, or item by name (partial match). Returns the full description.",
     {
-      characterId: z.number().optional().describe("The character ID"),
+      characterId: z.coerce.number().optional().describe("The character ID"),
       characterName: z
         .string()
         .optional()
@@ -153,7 +147,7 @@ export async function startServer(): Promise<void> {
     "get_character_full",
     "Get the complete character sheet with ALL definitions expanded inline (spells, feats, features, traits, items). Large output (~15-30KB).",
     {
-      characterId: z.number().optional().describe("The character ID"),
+      characterId: z.coerce.number().optional().describe("The character ID"),
       characterName: z
         .string()
         .optional()
@@ -171,12 +165,12 @@ export async function startServer(): Promise<void> {
     "update_hp",
     "Update a character's hit points (positive = heal, negative = damage). Optionally set temporary HP.",
     {
-      characterId: z.number().describe("The character ID"),
+      characterId: z.coerce.number().describe("The character ID"),
       hpChange: z
-        .number()
+        .coerce.number()
         .describe("HP change (positive for healing, negative for damage)"),
       tempHp: z
-        .number()
+        .coerce.number()
         .optional()
         .describe("Set temporary hit points to this value"),
     },
@@ -192,9 +186,9 @@ export async function startServer(): Promise<void> {
     "update_spell_slots",
     "Update used spell slots for a specific spell level",
     {
-      characterId: z.number().describe("The character ID"),
-      level: z.number().describe("Spell slot level (1-9)"),
-      used: z.number().describe("Number of slots used at this level"),
+      characterId: z.coerce.number().describe("The character ID"),
+      level: z.coerce.number().describe("Spell slot level (1-9)"),
+      used: z.coerce.number().describe("Number of slots used at this level"),
     },
     async (params) =>
       updateSpellSlots(client, {
@@ -208,11 +202,11 @@ export async function startServer(): Promise<void> {
     "update_death_saves",
     "Update death saving throw successes or failures",
     {
-      characterId: z.number().describe("The character ID"),
+      characterId: z.coerce.number().describe("The character ID"),
       type: z
         .enum(["success", "failure"])
         .describe("Type of death save: 'success' or 'failure'"),
-      count: z.number().describe("Number of successes or failures (0-3)"),
+      count: z.coerce.number().describe("Number of successes or failures (0-3)"),
     },
     async (params) =>
       updateDeathSaves(client, {
@@ -226,12 +220,12 @@ export async function startServer(): Promise<void> {
     "update_currency",
     "Update a character's currency. Use 'delta' to add/spend (e.g., delta: 50 to add, delta: -10 to spend) or 'amount' to set an absolute value.",
     {
-      characterId: z.number().describe("The character ID"),
+      characterId: z.coerce.number().describe("The character ID"),
       currency: z
         .enum(["cp", "sp", "ep", "gp", "pp"])
         .describe("Currency type: cp, sp, ep, gp, or pp"),
-      amount: z.number().optional().describe("Set currency to this exact amount"),
-      delta: z.number().optional().describe("Add (positive) or spend (negative) this many coins"),
+      amount: z.coerce.number().optional().describe("Set currency to this exact amount"),
+      delta: z.coerce.number().optional().describe("Add (positive) or spend (negative) this many coins"),
     },
     async (params) =>
       updateCurrency(client, {
@@ -246,14 +240,14 @@ export async function startServer(): Promise<void> {
     "use_ability",
     "Update uses of a limited-use ability (e.g., Favored Enemy, Dreadful Strike, Ki Points). Increments by 1 if 'uses' is not specified, or set exact count with 'uses'. Set uses to 0 to reset.",
     {
-      characterId: z.number().describe("The character ID"),
+      characterId: z.coerce.number().describe("The character ID"),
       abilityName: z
         .string()
         .describe(
           "Name of the ability (e.g., 'Hunter's Mark', 'Dreadful Strike')"
         ),
       uses: z
-        .number()
+        .coerce.number()
         .optional()
         .describe(
           "Set exact number of uses expended. If omitted, increments current uses by 1."
@@ -271,8 +265,8 @@ export async function startServer(): Promise<void> {
     "update_pact_magic",
     "Update used pact magic slots for a Warlock",
     {
-      characterId: z.number().describe("The character ID"),
-      used: z.number().describe("Number of pact magic slots used"),
+      characterId: z.coerce.number().describe("The character ID"),
+      used: z.coerce.number().describe("Number of pact magic slots used"),
     },
     async (params) =>
       updatePactMagic(client, {
@@ -285,7 +279,7 @@ export async function startServer(): Promise<void> {
     "long_rest",
     "Perform a long rest: restores HP to full, resets spell slots, pact magic, and long-rest abilities",
     {
-      characterId: z.number().describe("The character ID"),
+      characterId: z.coerce.number().describe("The character ID"),
     },
     async (params) =>
       longRest(client, {
@@ -297,7 +291,7 @@ export async function startServer(): Promise<void> {
     "short_rest",
     "Perform a short rest: resets pact magic and short-rest abilities",
     {
-      characterId: z.number().describe("The character ID"),
+      characterId: z.coerce.number().describe("The character ID"),
     },
     async (params) =>
       shortRest(client, {
@@ -309,10 +303,10 @@ export async function startServer(): Promise<void> {
     "cast_spell",
     "Cast a spell and automatically decrement the appropriate spell slot or pact magic slot. Supports upcasting.",
     {
-      characterId: z.number().describe("The character ID"),
+      characterId: z.coerce.number().describe("The character ID"),
       spellName: z.string().describe("Name of the spell to cast"),
       level: z
-        .number()
+        .coerce.number()
         .optional()
         .describe("Cast at this level (for upcasting). Defaults to spell's base level."),
     },
@@ -336,7 +330,7 @@ export async function startServer(): Promise<void> {
     "get_campaign_characters",
     "Get the party roster for a specific campaign",
     {
-      campaignId: z.number().describe("The campaign ID"),
+      campaignId: z.coerce.number().describe("The campaign ID"),
     },
     async (params) =>
       getCampaignCharacters(client, {
@@ -350,7 +344,7 @@ export async function startServer(): Promise<void> {
     "Search the full spell compendium by name, level, school, concentration, or ritual",
     {
       name: z.string().optional().describe("Spell name (partial match)"),
-      level: z.number().optional().describe("Spell level (0-9, 0=cantrip)"),
+      level: z.coerce.number().optional().describe("Spell level (0-9, 0=cantrip)"),
       school: z
         .string()
         .optional()
@@ -381,10 +375,10 @@ export async function startServer(): Promise<void> {
   // Register reference tools - monsters
   server.tool(
     "search_monsters",
-    "Search for monsters by name, CR, type, or size. Supports pagination and homebrew.",
+    "Search for monsters by name, CR, type, or size. Supports pagination and homebrew. Note: CR/type/size filters search the first 200 alphabetical monsters. For best results, combine filters with a name search term.",
     {
       name: z.string().optional().describe("Monster name (partial match)"),
-      cr: z.number().optional().describe("Challenge Rating"),
+      cr: z.coerce.number().optional().describe("Challenge Rating"),
       type: z
         .string()
         .optional()
@@ -393,8 +387,12 @@ export async function startServer(): Promise<void> {
         .string()
         .optional()
         .describe("Size (tiny, small, medium, large, huge, gargantuan)"),
-      page: z.number().optional().describe("Page number (default: 1, 20 results per page)"),
+      page: z.coerce.number().optional().describe("Page number (default: 1, 20 results per page)"),
       showHomebrew: z.boolean().optional().describe("Include homebrew monsters"),
+      source: z
+        .string()
+        .optional()
+        .describe("Source book name (e.g., 'Monster Manual', 'Volo's Guide')"),
     },
     async (params) =>
       searchMonsters(client, {
@@ -404,6 +402,7 @@ export async function startServer(): Promise<void> {
         size: params.size,
         page: params.page,
         showHomebrew: params.showHomebrew,
+        source: params.source,
       })
   );
 

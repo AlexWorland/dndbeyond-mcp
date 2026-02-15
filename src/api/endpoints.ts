@@ -24,11 +24,16 @@ export const ENDPOINTS = {
     backgrounds: () => `${DDB_CHARACTER_SERVICE}/character/v5/game-data/backgrounds`,
     alwaysKnownSpells: (classId: number, classLevel: number = 20) =>
       `${DDB_CHARACTER_SERVICE}/character/v5/game-data/always-known-spells?classId=${classId}&classLevel=${classLevel}&sharingSetting=2`,
+    alwaysPreparedSpells: (classId: number, classLevel: number = 20) =>
+      `${DDB_CHARACTER_SERVICE}/character/v5/game-data/always-prepared-spells?classId=${classId}&classLevel=${classLevel}&sharingSetting=2`,
+    classFeatureCollection: () => `${DDB_CHARACTER_SERVICE}/character/v5/game-data/class-feature/collection`,
+    racialTraitCollection: () => `${DDB_CHARACTER_SERVICE}/character/v5/game-data/racial-trait/collection`,
   },
   monster: {
-    search: (search: string = "", skip: number = 0, take: number = 20, showHomebrew?: boolean) => {
+    search: (search: string = "", skip: number = 0, take: number = 20, showHomebrew?: boolean, sources?: string) => {
       const homebrewParam = showHomebrew ? "&showHomebrew=t" : "";
-      return `${DDB_MONSTER_SERVICE}/v1/Monster?search=${encodeURIComponent(search)}&skip=${skip}&take=${take}${homebrewParam}`;
+      const sourcesParam = sources ? `&sources=${encodeURIComponent(sources)}` : "";
+      return `${DDB_MONSTER_SERVICE}/v1/Monster?search=${encodeURIComponent(search)}&skip=${skip}&take=${take}${homebrewParam}${sourcesParam}`;
     },
     get: (id: number) => `${DDB_MONSTER_SERVICE}/v1/Monster/${id}`,
     getByIds: (ids: number[]) => {
@@ -38,6 +43,8 @@ export const ENDPOINTS = {
   },
   campaign: {
     list: () => `${DDB_WATERDEEP}/api/campaign/stt/active-campaigns`,
+    userCampaigns: () => `${DDB_WATERDEEP}/api/campaign/stt/user-campaigns`,
+    characters: (campaignId: number) => `${DDB_WATERDEEP}/api/campaign/stt/active-short-characters/${campaignId}`,
   },
   config: {
     json: () => `${DDB_WATERDEEP}/api/config/json`,

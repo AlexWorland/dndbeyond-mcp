@@ -15,6 +15,7 @@ export interface MonsterSearchParams {
   environment?: string;
   page?: number;
   showHomebrew?: boolean;
+  source?: string;
 }
 
 export interface ItemSearchParams {
@@ -35,4 +36,15 @@ export interface RaceSearchParams {
 
 export interface BackgroundSearchParams {
   name?: string;
+}
+
+export interface ClassFeatureSearchParams {
+  name?: string;
+  className?: string;
+  level?: number;
+}
+
+export interface RacialTraitSearchParams {
+  name?: string;
+  raceName?: string;
 }
