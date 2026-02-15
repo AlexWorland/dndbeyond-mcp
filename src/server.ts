@@ -33,6 +33,12 @@ import {
   setSpecies,
   setAbilityScore,
   updateCharacterName,
+  setClassLevel,
+  setAbilityScoreType,
+  setStartingEquipmentType,
+  addInventoryItems,
+  setGold,
+  updateDescription,
 } from "./tools/character.js";
 import { listCampaigns, getCampaignCharacters } from "./tools/campaign.js";
 import {
@@ -391,6 +397,7 @@ export async function startServer(): Promise<void> {
       type: z.coerce.number().describe("Choice type from the choice object"),
       choiceKey: z.string().describe("Choice key identifier from the choice object"),
       choiceValue: z.coerce.number().describe("Selected option ID"),
+      parentChoiceId: z.coerce.number().optional().describe("Parent choice ID (for nested choices)"),
     },
     async (params) =>
       setClassFeatureChoice(client, {
@@ -401,6 +408,7 @@ export async function startServer(): Promise<void> {
         type: params.type,
         choiceKey: params.choiceKey,
         choiceValue: params.choiceValue,
+        parentChoiceId: params.parentChoiceId,
       })
   );
 
@@ -501,6 +509,100 @@ export async function startServer(): Promise<void> {
       updateCharacterName(client, {
         characterId: params.characterId,
         name: params.name,
+      })
+  );
+
+  server.tool(
+    "set_class_level",
+    "Set a character's class level. Requires the classMappingId (from the character's classes array, the 'id' field on each class entry).",
+    {
+      characterId: z.coerce.number().describe("The character ID"),
+      classId: z.coerce.number().describe("The class definition ID"),
+      classMappingId: z.coerce.number().describe("The character's class mapping ID (classes[].id)"),
+      level: z.coerce.number().describe("The level to set (1-20)"),
+    },
+    async (params) =>
+      setClassLevel(client, {
+        characterId: params.characterId,
+        classId: params.classId,
+        classMappingId: params.classMappingId,
+        level: params.level,
+      })
+  );
+
+  server.tool(
+    "set_ability_score_type",
+    "Set the ability score generation method for a character. Must be set before assigning ability scores on standard-build characters.",
+    {
+      characterId: z.coerce.number().describe("The character ID"),
+      abilityScoreType: z.coerce.number().describe("1 = Standard Array, 2 = Rolled, 3 = Point Buy"),
+    },
+    async (params) =>
+      setAbilityScoreType(client, {
+        characterId: params.characterId,
+        abilityScoreType: params.abilityScoreType,
+      })
+  );
+
+  server.tool(
+    "set_starting_equipment_type",
+    "Set the starting equipment type for a character during creation",
+    {
+      characterId: z.coerce.number().describe("The character ID"),
+      startingEquipmentType: z.coerce.number().describe("Starting equipment type (1 = Normal, 3 = Equipment)"),
+    },
+    async (params) =>
+      setStartingEquipmentType(client, {
+        characterId: params.characterId,
+        startingEquipmentType: params.startingEquipmentType,
+      })
+  );
+
+  server.tool(
+    "add_inventory_items",
+    "Add items to a character's inventory. Item entity types: 1782728300 = weapon, 2103445194 = gear/equipment.",
+    {
+      characterId: z.coerce.number().describe("The character ID"),
+      equipment: z.array(z.object({
+        entityId: z.coerce.number().describe("Item entity ID"),
+        entityTypeId: z.coerce.number().describe("Item entity type ID (1782728300=weapon, 2103445194=gear)"),
+        quantity: z.coerce.number().describe("Quantity to add"),
+      })).describe("Array of items to add"),
+    },
+    async (params) =>
+      addInventoryItems(client, {
+        characterId: params.characterId,
+        equipment: params.equipment,
+      })
+  );
+
+  server.tool(
+    "set_gold",
+    "Set the gold amount on a character (used during character creation for starting gold)",
+    {
+      characterId: z.coerce.number().describe("The character ID"),
+      amount: z.coerce.number().describe("Gold amount to set"),
+    },
+    async (params) =>
+      setGold(client, {
+        characterId: params.characterId,
+        amount: params.amount,
+      })
+  );
+
+  server.tool(
+    "update_description",
+    "Update a character description field. Fields: alignment (alignmentId number), lifestyle (lifestyleId number), faith, hair, skin, eyes, height, weight, age, gender, personalityTraits, ideals, bonds, flaws, backstory, otherNotes, allies, organizations, enemies.",
+    {
+      characterId: z.coerce.number().describe("The character ID"),
+      field: z.string().describe("Description field name (e.g., 'alignment', 'backstory', 'hair')"),
+      value: z.union([z.string(), z.coerce.number()]).describe("Value to set (string for text fields, number for alignment/lifestyle IDs)"),
+    },
+    async (params) =>
+      updateDescription(client, {
+        characterId: params.characterId,
+        field: params.field,
+        value: params.value,
       })
   );
 

@@ -2031,6 +2031,169 @@ export async function updateCharacterName(
 }
 
 // ============================================================================
+// CLASS LEVEL & ABILITY SCORE TYPE
+// ============================================================================
+
+interface SetClassLevelParams {
+  characterId: number;
+  classId: number;
+  classMappingId: number;
+  level: number;
+}
+
+export async function setClassLevel(
+  client: DdbClient,
+  params: SetClassLevelParams
+): Promise<ToolResult> {
+  if (params.level < 1 || params.level > 20) {
+    return { content: [{ type: "text", text: "Level must be between 1 and 20." }] };
+  }
+  await client.put(
+    ENDPOINTS.character.setClassLevel(),
+    { characterId: params.characterId, classId: params.classId, classMappingId: params.classMappingId, level: params.level },
+    [`character:${params.characterId}`]
+  );
+  return { content: [{ type: "text", text: `Set class level to ${params.level} on character ${params.characterId}.` }] };
+}
+
+interface SetAbilityScoreTypeParams {
+  characterId: number;
+  abilityScoreType: number;
+}
+
+export async function setAbilityScoreType(
+  client: DdbClient,
+  params: SetAbilityScoreTypeParams
+): Promise<ToolResult> {
+  const typeNames: Record<number, string> = { 1: "Standard Array", 2: "Rolled", 3: "Point Buy" };
+  const typeName = typeNames[params.abilityScoreType] ?? `type ${params.abilityScoreType}`;
+  await client.put(
+    ENDPOINTS.character.setAbilityScoreType(),
+    { characterId: params.characterId, abilityScoreType: params.abilityScoreType },
+    [`character:${params.characterId}`]
+  );
+  return { content: [{ type: "text", text: `Set ability score method to ${typeName} on character ${params.characterId}.` }] };
+}
+
+// ============================================================================
+// INVENTORY / STARTING EQUIPMENT
+// ============================================================================
+
+interface SetStartingEquipmentTypeParams {
+  characterId: number;
+  startingEquipmentType: number;
+}
+
+export async function setStartingEquipmentType(
+  client: DdbClient,
+  params: SetStartingEquipmentTypeParams
+): Promise<ToolResult> {
+  await client.put(
+    ENDPOINTS.character.inventory.setStartingType(),
+    { characterId: params.characterId, startingEquipmentType: params.startingEquipmentType },
+    [`character:${params.characterId}`]
+  );
+  return { content: [{ type: "text", text: `Set starting equipment type to ${params.startingEquipmentType} on character ${params.characterId}.` }] };
+}
+
+interface AddInventoryItemsParams {
+  characterId: number;
+  equipment: Array<{
+    entityId: number;
+    entityTypeId: number;
+    quantity: number;
+  }>;
+}
+
+export async function addInventoryItems(
+  client: DdbClient,
+  params: AddInventoryItemsParams
+): Promise<ToolResult> {
+  const items = params.equipment.map(item => ({
+    containerEntityId: params.characterId,
+    containerEntityTypeId: 1581111423, // Character container type
+    entityId: item.entityId,
+    entityTypeId: item.entityTypeId,
+    quantity: item.quantity,
+    originEntityId: null,
+    originEntityTypeId: null,
+  }));
+  await client.post(
+    ENDPOINTS.character.inventory.addItems(),
+    { characterId: params.characterId, equipment: items },
+    [`character:${params.characterId}`]
+  );
+  return { content: [{ type: "text", text: `Added ${params.equipment.length} item(s) to character ${params.characterId}.` }] };
+}
+
+interface SetGoldParams {
+  characterId: number;
+  amount: number;
+}
+
+export async function setGold(
+  client: DdbClient,
+  params: SetGoldParams
+): Promise<ToolResult> {
+  await client.put(
+    ENDPOINTS.character.inventory.setGold(),
+    { characterId: params.characterId, amount: params.amount },
+    [`character:${params.characterId}`]
+  );
+  return { content: [{ type: "text", text: `Set gold to ${params.amount} on character ${params.characterId}.` }] };
+}
+
+// ============================================================================
+// DESCRIPTION FIELDS
+// ============================================================================
+
+interface UpdateDescriptionParams {
+  characterId: number;
+  field: string;
+  value: string | number;
+}
+
+export async function updateDescription(
+  client: DdbClient,
+  params: UpdateDescriptionParams
+): Promise<ToolResult> {
+  const FIELD_ENDPOINTS: Record<string, { endpoint: () => string; bodyKey: string }> = {
+    alignment: { endpoint: ENDPOINTS.character.updateAlignment, bodyKey: "alignmentId" },
+    lifestyle: { endpoint: ENDPOINTS.character.updateLifestyle, bodyKey: "lifestyleId" },
+    faith: { endpoint: ENDPOINTS.character.updateFaith, bodyKey: "faith" },
+    hair: { endpoint: () => ENDPOINTS.character.updateAppearance("hair"), bodyKey: "hair" },
+    skin: { endpoint: () => ENDPOINTS.character.updateAppearance("skin"), bodyKey: "skin" },
+    eyes: { endpoint: () => ENDPOINTS.character.updateAppearance("eyes"), bodyKey: "eyes" },
+    height: { endpoint: () => ENDPOINTS.character.updateAppearance("height"), bodyKey: "height" },
+    weight: { endpoint: () => ENDPOINTS.character.updateAppearance("weight"), bodyKey: "weight" },
+    age: { endpoint: () => ENDPOINTS.character.updateAppearance("age"), bodyKey: "age" },
+    gender: { endpoint: () => ENDPOINTS.character.updateAppearance("gender"), bodyKey: "gender" },
+    personalityTraits: { endpoint: ENDPOINTS.character.updateTraits, bodyKey: "personalityTraits" },
+    ideals: { endpoint: ENDPOINTS.character.updateTraits, bodyKey: "ideals" },
+    bonds: { endpoint: ENDPOINTS.character.updateTraits, bodyKey: "bonds" },
+    flaws: { endpoint: ENDPOINTS.character.updateTraits, bodyKey: "flaws" },
+    backstory: { endpoint: ENDPOINTS.character.updateNotes, bodyKey: "backstory" },
+    otherNotes: { endpoint: ENDPOINTS.character.updateNotes, bodyKey: "otherNotes" },
+    allies: { endpoint: ENDPOINTS.character.updateNotes, bodyKey: "allies" },
+    organizations: { endpoint: ENDPOINTS.character.updateNotes, bodyKey: "organizations" },
+    enemies: { endpoint: ENDPOINTS.character.updateNotes, bodyKey: "enemies" },
+  };
+
+  const config = FIELD_ENDPOINTS[params.field];
+  if (!config) {
+    const validFields = Object.keys(FIELD_ENDPOINTS).join(", ");
+    return { content: [{ type: "text", text: `Invalid field "${params.field}". Valid fields: ${validFields}` }] };
+  }
+
+  await client.put(
+    config.endpoint(),
+    { characterId: params.characterId, [config.bodyKey]: params.value },
+    [`character:${params.characterId}`]
+  );
+  return { content: [{ type: "text", text: `Updated ${params.field} on character ${params.characterId}.` }] };
+}
+
+// ============================================================================
 // CHOICE RESOLUTION
 // ============================================================================
 
@@ -2042,6 +2205,7 @@ interface SetClassFeatureChoiceParams {
   type: number;
   choiceKey: string;
   choiceValue: number;
+  parentChoiceId?: number | null;
 }
 
 export async function setClassFeatureChoice(
@@ -2058,6 +2222,7 @@ export async function setClassFeatureChoice(
       type: params.type,
       choiceKey: params.choiceKey,
       choiceValue: params.choiceValue,
+      parentChoiceId: params.parentChoiceId ?? null,
     },
     [`character:${params.characterId}`]
   );
@@ -2127,6 +2292,37 @@ export async function resolveChoices(
   const MAX_ITERATIONS = 8;
   const resolved: string[] = [];
   const skipped: string[] = [];
+  const configFixed: string[] = [];
+
+  // First, fix missing configuration fields
+  const initialChar = await client.get<DdbCharacter>(
+    ENDPOINTS.character.get(params.characterId),
+    `resolve-init:${params.characterId}:${Date.now()}`,
+    1
+  );
+  const config = (initialChar as any).configuration ?? {};
+
+  if (!config.abilityScoreType) {
+    try {
+      await client.put(
+        ENDPOINTS.character.setAbilityScoreType(),
+        { characterId: params.characterId, abilityScoreType: 1 },
+        [`character:${params.characterId}`]
+      );
+      configFixed.push("abilityScoreType → Standard Array");
+    } catch { /* ignore */ }
+  }
+
+  if (!config.startingEquipmentType) {
+    try {
+      await client.put(
+        ENDPOINTS.character.inventory.setStartingType(),
+        { characterId: params.characterId, startingEquipmentType: 1 },
+        [`character:${params.characterId}`]
+      );
+      configFixed.push("startingEquipmentType → Normal");
+    } catch { /* ignore */ }
+  }
 
   for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
     const char = await client.get<DdbCharacter>(
@@ -2244,6 +2440,7 @@ export async function resolveChoices(
 
   const lines = [
     `Auto-resolved ${resolved.length} choices on ${finalChar.name}.`,
+    ...(configFixed.length > 0 ? [`Configuration set: ${configFixed.join(", ")}`] : []),
     ...(resolved.length > 0 ? [`Resolved: ${resolved.join(", ")}`] : []),
     ...(skipped.length > 0 ? [`Skipped (no options): ${skipped.length}`] : []),
     ...(remaining > 0 ? [`Remaining unresolved: ${remaining}`] : ["All choices resolved."]),

@@ -9,6 +9,12 @@ dist/
 # Config with credentials
 .dndbeyond-mcp/
 
+# Playwright state
+.playwright-mcp/
+
+# Captured API data (may contain auth tokens)
+setup/captured-requests.json
+
 # IDE
 .idea/
 .vscode/
