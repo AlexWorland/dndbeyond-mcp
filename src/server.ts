@@ -21,6 +21,14 @@ import {
   shortRest,
   castSpell,
   useAbility,
+  createCharacter,
+  deleteCharacter,
+  addClass,
+  setBackground,
+  setBackgroundChoice,
+  setSpecies,
+  setAbilityScore,
+  updateCharacterName,
 } from "./tools/character.js";
 import { listCampaigns, getCampaignCharacters } from "./tools/campaign.js";
 import {
@@ -286,6 +294,133 @@ export async function startServer(): Promise<void> {
         characterId: params.characterId,
         spellName: params.spellName,
         level: params.level,
+      })
+  );
+
+  // Register character creation/builder tools
+  server.tool(
+    "create_character",
+    "Create a new D&D Beyond character. Standard build creates a blank character. Quick build creates one with a class and species pre-selected.",
+    {
+      method: z.enum(["standard", "quick"]).describe("Build method: 'standard' (blank) or 'quick' (pre-configured)"),
+      classId: z.coerce.number().optional().describe("Class ID for quick build. Use search_classes to find IDs. 2024 PHB: 2190875=Barbarian, 2190876=Bard, 2190877=Cleric, 2190878=Druid, 2190879=Fighter, 2190880=Monk, 2190881=Paladin, 2190882=Ranger, 2190883=Rogue, 2190884=Sorcerer, 2190885=Warlock, 2190886=Wizard"),
+      entityRaceId: z.coerce.number().optional().describe("Race entity ID for quick build"),
+      entityRaceTypeId: z.coerce.number().optional().describe("Race entity type ID for quick build"),
+    },
+    async (params) =>
+      createCharacter(client, {
+        method: params.method,
+        classId: params.classId,
+        entityRaceId: params.entityRaceId,
+        entityRaceTypeId: params.entityRaceTypeId,
+      })
+  );
+
+  server.tool(
+    "delete_character",
+    "Permanently delete a character from D&D Beyond",
+    {
+      characterId: z.coerce.number().describe("The character ID to delete"),
+    },
+    async (params) =>
+      deleteCharacter(client, {
+        characterId: params.characterId,
+      })
+  );
+
+  server.tool(
+    "add_class",
+    "Add a class to a character at a specified level",
+    {
+      characterId: z.coerce.number().describe("The character ID"),
+      classId: z.coerce.number().describe("Class ID. Use search_classes to find IDs. 2024 PHB: 2190875=Barbarian, 2190876=Bard, 2190877=Cleric, 2190878=Druid, 2190879=Fighter, 2190880=Monk, 2190881=Paladin, 2190882=Ranger, 2190883=Rogue, 2190884=Sorcerer, 2190885=Warlock, 2190886=Wizard"),
+      level: z.coerce.number().describe("Class level to set"),
+    },
+    async (params) =>
+      addClass(client, {
+        characterId: params.characterId,
+        classId: params.classId,
+        level: params.level,
+      })
+  );
+
+  server.tool(
+    "set_background",
+    "Set a character's background",
+    {
+      characterId: z.coerce.number().describe("The character ID"),
+      backgroundId: z.coerce.number().describe("Background ID"),
+    },
+    async (params) =>
+      setBackground(client, {
+        characterId: params.characterId,
+        backgroundId: params.backgroundId,
+      })
+  );
+
+  server.tool(
+    "set_background_choice",
+    "Configure a background proficiency or equipment choice",
+    {
+      characterId: z.coerce.number().describe("The character ID"),
+      type: z.coerce.number().describe("Choice type"),
+      choiceKey: z.string().describe("Choice key identifier"),
+      choiceValue: z.coerce.number().describe("Selected choice value"),
+    },
+    async (params) =>
+      setBackgroundChoice(client, {
+        characterId: params.characterId,
+        type: params.type,
+        choiceKey: params.choiceKey,
+        choiceValue: params.choiceValue,
+      })
+  );
+
+  server.tool(
+    "set_species",
+    "Set a character's species (race)",
+    {
+      characterId: z.coerce.number().describe("The character ID"),
+      entityRaceId: z.coerce.number().describe("Race entity ID"),
+      entityRaceTypeId: z.coerce.number().describe("Race entity type ID"),
+    },
+    async (params) =>
+      setSpecies(client, {
+        characterId: params.characterId,
+        entityRaceId: params.entityRaceId,
+        entityRaceTypeId: params.entityRaceTypeId,
+      })
+  );
+
+  server.tool(
+    "set_ability_score",
+    "Set an ability score value for a character. statId: 1=STR, 2=DEX, 3=CON, 4=INT, 5=WIS, 6=CHA. type: 1=standard array, 2=rolled, 3=point buy.",
+    {
+      characterId: z.coerce.number().describe("The character ID"),
+      statId: z.coerce.number().describe("Ability stat ID (1=STR, 2=DEX, 3=CON, 4=INT, 5=WIS, 6=CHA)"),
+      type: z.coerce.number().describe("Score type (1=standard array, 2=rolled, 3=point buy)"),
+      value: z.coerce.number().describe("The ability score value"),
+    },
+    async (params) =>
+      setAbilityScore(client, {
+        characterId: params.characterId,
+        statId: params.statId,
+        type: params.type,
+        value: params.value,
+      })
+  );
+
+  server.tool(
+    "update_character_name",
+    "Set or change a character's name",
+    {
+      characterId: z.coerce.number().describe("The character ID"),
+      name: z.string().describe("The new character name"),
+    },
+    async (params) =>
+      updateCharacterName(client, {
+        characterId: params.characterId,
+        name: params.name,
       })
   );
 

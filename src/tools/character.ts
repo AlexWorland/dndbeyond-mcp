@@ -1868,3 +1868,164 @@ export async function useAbility(
     ],
   };
 }
+
+// ============================================================================
+// CHARACTER CREATION / BUILDER
+// ============================================================================
+
+interface CreateCharacterParams {
+  method: "standard" | "quick";
+  classId?: number;
+  entityRaceId?: number;
+  entityRaceTypeId?: number;
+}
+
+export async function createCharacter(
+  client: DdbClient,
+  params: CreateCharacterParams
+): Promise<ToolResult> {
+  if (params.method === "quick") {
+    if (!params.classId || !params.entityRaceId || !params.entityRaceTypeId) {
+      return { content: [{ type: "text", text: "Quick build requires classId, entityRaceId, and entityRaceTypeId." }] };
+    }
+    const characterId = await client.post<number>(
+      ENDPOINTS.character.builder.quickBuild(),
+      { classId: params.classId, entityRaceId: params.entityRaceId, entityRaceTypeId: params.entityRaceTypeId }
+    );
+    return { content: [{ type: "text", text: `Created character via quick build. Character ID: ${characterId}` }] };
+  }
+
+  const characterId = await client.post<number>(
+    ENDPOINTS.character.builder.standardBuild(),
+    { showHelpText: false }
+  );
+  return { content: [{ type: "text", text: `Created character via standard build. Character ID: ${characterId}` }] };
+}
+
+interface DeleteCharacterParams {
+  characterId: number;
+}
+
+export async function deleteCharacter(
+  client: DdbClient,
+  params: DeleteCharacterParams
+): Promise<ToolResult> {
+  await client.delete(
+    ENDPOINTS.character.delete(),
+    { characterId: params.characterId },
+    [`character:${params.characterId}`]
+  );
+  return { content: [{ type: "text", text: `Deleted character ${params.characterId}.` }] };
+}
+
+interface AddClassParams {
+  characterId: number;
+  classId: number;
+  level: number;
+}
+
+export async function addClass(
+  client: DdbClient,
+  params: AddClassParams
+): Promise<ToolResult> {
+  await client.post(
+    ENDPOINTS.character.addClass(),
+    { characterId: params.characterId, classId: params.classId, level: params.level },
+    [`character:${params.characterId}`]
+  );
+  return { content: [{ type: "text", text: `Added class ${params.classId} at level ${params.level} to character ${params.characterId}.` }] };
+}
+
+interface SetBackgroundParams {
+  characterId: number;
+  backgroundId: number;
+}
+
+export async function setBackground(
+  client: DdbClient,
+  params: SetBackgroundParams
+): Promise<ToolResult> {
+  await client.put(
+    ENDPOINTS.character.setBackground(),
+    { characterId: params.characterId, backgroundId: params.backgroundId },
+    [`character:${params.characterId}`]
+  );
+  return { content: [{ type: "text", text: `Set background ${params.backgroundId} on character ${params.characterId}.` }] };
+}
+
+interface SetBackgroundChoiceParams {
+  characterId: number;
+  type: number;
+  choiceKey: string;
+  choiceValue: number;
+}
+
+export async function setBackgroundChoice(
+  client: DdbClient,
+  params: SetBackgroundChoiceParams
+): Promise<ToolResult> {
+  await client.put(
+    ENDPOINTS.character.setBackgroundChoice(),
+    { characterId: params.characterId, type: params.type, choiceKey: params.choiceKey, choiceValue: params.choiceValue },
+    [`character:${params.characterId}`]
+  );
+  return { content: [{ type: "text", text: `Set background choice on character ${params.characterId}.` }] };
+}
+
+interface SetSpeciesParams {
+  characterId: number;
+  entityRaceId: number;
+  entityRaceTypeId: number;
+}
+
+export async function setSpecies(
+  client: DdbClient,
+  params: SetSpeciesParams
+): Promise<ToolResult> {
+  await client.put(
+    ENDPOINTS.character.setRace(),
+    { characterId: params.characterId, entityRaceId: params.entityRaceId, entityRaceTypeId: params.entityRaceTypeId },
+    [`character:${params.characterId}`]
+  );
+  return { content: [{ type: "text", text: `Set species on character ${params.characterId}.` }] };
+}
+
+interface SetAbilityScoreParams {
+  characterId: number;
+  statId: number;
+  type: number;
+  value: number;
+}
+
+export async function setAbilityScore(
+  client: DdbClient,
+  params: SetAbilityScoreParams
+): Promise<ToolResult> {
+  if (params.statId < 1 || params.statId > 6) {
+    return { content: [{ type: "text", text: "statId must be between 1 (STR) and 6 (CHA)." }] };
+  }
+  const abilityName = ["STR", "DEX", "CON", "INT", "WIS", "CHA"][params.statId - 1];
+  await client.put(
+    ENDPOINTS.character.setAbilityScore(),
+    { characterId: params.characterId, statId: params.statId, type: params.type, value: params.value },
+    [`character:${params.characterId}`]
+  );
+  return { content: [{ type: "text", text: `Set ${abilityName} to ${params.value} on character ${params.characterId}.` }] };
+}
+
+interface UpdateCharacterNameParams {
+  characterId: number;
+  name: string;
+}
+
+export async function updateCharacterName(
+  client: DdbClient,
+  params: UpdateCharacterNameParams
+): Promise<ToolResult> {
+  await client.put(
+    ENDPOINTS.character.updateName(),
+    { characterId: params.characterId, name: params.name },
+    [`character:${params.characterId}`]
+  );
+  return { content: [{ type: "text", text: `Updated character ${params.characterId} name to "${params.name}".` }] };
+}

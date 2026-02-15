@@ -37,9 +37,35 @@ export class DdbClient {
     return result;
   }
 
+  async post<T>(url: string, body: unknown, invalidateCacheKeys?: string[]): Promise<T> {
+    const result = await this.request<T>(url, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+    if (invalidateCacheKeys) {
+      for (const key of invalidateCacheKeys) {
+        this.cache.invalidate(key);
+      }
+    }
+    return result;
+  }
+
   async put<T>(url: string, body: unknown, invalidateCacheKeys?: string[]): Promise<T> {
     const result = await this.request<T>(url, {
       method: "PUT",
+      body: JSON.stringify(body),
+    });
+    if (invalidateCacheKeys) {
+      for (const key of invalidateCacheKeys) {
+        this.cache.invalidate(key);
+      }
+    }
+    return result;
+  }
+
+  async delete<T>(url: string, body: unknown, invalidateCacheKeys?: string[]): Promise<T> {
+    const result = await this.request<T>(url, {
+      method: "DELETE",
       body: JSON.stringify(body),
     });
     if (invalidateCacheKeys) {

@@ -12,6 +12,17 @@ export const ENDPOINTS = {
     updateLimitedUse: () => `${DDB_CHARACTER_SERVICE}/character/v5/action/limited-use`,
     updateCurrency: (id: number) => `${DDB_CHARACTER_SERVICE}/character/v5/character/${id}/inventory/currency`,
     updatePactMagic: (id: number) => `${DDB_CHARACTER_SERVICE}/character/v5/character/${id}/spell/pact-magic`,
+    builder: {
+      standardBuild: () => `${DDB_CHARACTER_SERVICE}/character/v5/builder/standard-build`,
+      quickBuild: () => `${DDB_CHARACTER_SERVICE}/character/v5/builder/quick-build`,
+    },
+    addClass: () => `${DDB_CHARACTER_SERVICE}/character/v5/class`,
+    setBackground: () => `${DDB_CHARACTER_SERVICE}/character/v5/background`,
+    setBackgroundChoice: () => `${DDB_CHARACTER_SERVICE}/character/v5/background/choice`,
+    setRace: () => `${DDB_CHARACTER_SERVICE}/character/v5/race`,
+    setAbilityScore: () => `${DDB_CHARACTER_SERVICE}/character/v5/character/ability-score`,
+    updateName: () => `${DDB_CHARACTER_SERVICE}/character/v5/description/name`,
+    delete: () => `${DDB_CHARACTER_SERVICE}/character/v5/character`,
   },
   gameData: {
     items: (campaignId?: number) => {

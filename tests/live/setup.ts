@@ -90,3 +90,29 @@ export async function setupLiveCharacter(): Promise<{
     `No characters found in any of ${campaigns.length} campaigns. Set DDB_TEST_CHARACTER_ID env var.`
   );
 }
+
+/**
+ * Creates a new test character via standard-build and returns the character ID.
+ */
+export async function createTestCharacter(client: DdbClient): Promise<number> {
+  // Standard-build returns the character ID as a raw number (not an object)
+  const characterId = await client.post<number>(
+    ENDPOINTS.character.builder.standardBuild(),
+    { showHelpText: false }
+  );
+  return characterId;
+}
+
+/**
+ * Deletes a test character. Silently ignores errors (character may already be deleted).
+ */
+export async function deleteTestCharacter(client: DdbClient, characterId: number): Promise<void> {
+  try {
+    await client.delete(
+      ENDPOINTS.character.delete(),
+      { characterId }
+    );
+  } catch {
+    // Ignore — character may already be deleted or cleanup from a failed test
+  }
+}
