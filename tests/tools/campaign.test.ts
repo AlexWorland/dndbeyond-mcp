@@ -9,41 +9,27 @@ const sampleCampaigns: DdbCampaign[] = [
     name: "Lost Mines of Phandelver",
     dmId: 1,
     dmUsername: "DungeonMaster",
-    characters: [
-      {
-        characterId: 1001,
-        characterName: "Thorin Stonehammer",
-        userId: 10,
-        username: "player1",
-      },
-      {
-        characterId: 1002,
-        characterName: "Elara Moonwhisper",
-        userId: 11,
-        username: "player2",
-      },
-      {
-        characterId: 1003,
-        characterName: "Grimjaw",
-        userId: 12,
-        username: "player3",
-      },
-    ],
+    playerCount: 3,
+    dateCreated: "1/1/2026",
   },
   {
     id: 102,
     name: "Curse of Strahd",
     dmId: 2,
     dmUsername: "DarkDM",
-    characters: [
-      {
-        characterId: 2001,
-        characterName: "Van Helsing",
-        userId: 20,
-        username: "hunter",
-      },
-    ],
+    playerCount: 1,
+    dateCreated: "2/1/2026",
   },
+];
+
+const sampleCharacters101 = [
+  { id: 1001, name: "Thorin Stonehammer", userId: 10, userName: "player1", avatarUrl: "", characterStatus: 1, isAssigned: true },
+  { id: 1002, name: "Elara Moonwhisper", userId: 11, userName: "player2", avatarUrl: "", characterStatus: 1, isAssigned: true },
+  { id: 1003, name: "Grimjaw", userId: 12, userName: "player3", avatarUrl: "", characterStatus: 1, isAssigned: true },
+];
+
+const sampleCharacters102 = [
+  { id: 2001, name: "Van Helsing", userId: 20, userName: "hunter", avatarUrl: "", characterStatus: 1, isAssigned: true },
 ];
 
 describe("campaign tools", () => {
@@ -95,11 +81,27 @@ describe("campaign tools", () => {
         expect.any(Number)
       );
     });
+
+    it("shouldUseUserCampaignsEndpointWhenIncludeAllIsTrue", async () => {
+      vi.mocked(mockClient.get).mockResolvedValue(sampleCampaigns);
+
+      await listCampaigns(mockClient, true);
+
+      const callUrl = vi.mocked(mockClient.get).mock.calls[0][0];
+      expect(callUrl).toContain("user-campaigns");
+      expect(mockClient.get).toHaveBeenCalledWith(
+        expect.any(String),
+        "user-campaigns",
+        expect.any(Number)
+      );
+    });
   });
 
   describe("getCampaignCharacters", () => {
     it("shouldReturnFormattedPartyRoster", async () => {
-      vi.mocked(mockClient.get).mockResolvedValue(sampleCampaigns);
+      vi.mocked(mockClient.get)
+        .mockResolvedValueOnce(sampleCampaigns)
+        .mockResolvedValueOnce(sampleCharacters101);
 
       const result = await getCampaignCharacters(mockClient, { campaignId: 101 });
 
@@ -122,15 +124,18 @@ describe("campaign tools", () => {
     });
 
     it("shouldHandleCampaignWithNoCharacters", async () => {
-      vi.mocked(mockClient.get).mockResolvedValue([
-        {
-          id: 103,
-          name: "Empty Campaign",
-          dmId: 3,
-          dmUsername: "NewDM",
-          characters: [],
-        },
-      ]);
+      vi.mocked(mockClient.get)
+        .mockResolvedValueOnce([
+          {
+            id: 103,
+            name: "Empty Campaign",
+            dmId: 3,
+            dmUsername: "NewDM",
+            playerCount: 0,
+            dateCreated: "1/1/2026",
+          },
+        ])
+        .mockResolvedValueOnce([]);
 
       const result = await getCampaignCharacters(mockClient, { campaignId: 103 });
 

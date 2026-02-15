@@ -10,9 +10,7 @@ import { registerCampaignResources } from "./resources/campaign.js";
 import { setupAuth, checkAuth } from "./tools/auth.js";
 import {
   getCharacter,
-  getCharacterSheet,
   getDefinition,
-  getCharacterFull,
   listCharacters,
   updateHp,
   updateSpellSlots,
@@ -37,6 +35,8 @@ import {
   searchClasses,
   searchRaces,
   searchBackgrounds,
+  searchClassFeatures,
+  searchRacialTraits,
 } from "./tools/reference.js";
 
 export async function startServer(): Promise<void> {
@@ -81,18 +81,23 @@ export async function startServer(): Promise<void> {
   // Register character read tools
   server.tool(
     "get_character",
-    "Get full character sheet details for a specific character by ID or name",
+    "Get character details by ID or name. Use 'detail' to control output: 'summary' (basic stats), 'sheet' (comprehensive with saves/skills/features, default), or 'full' (sheet + all definitions expanded, ~15-30KB).",
     {
       characterId: z.coerce.number().optional().describe("The character ID"),
       characterName: z
         .string()
         .optional()
         .describe("The character name (case-insensitive search)"),
+      detail: z
+        .enum(["summary", "sheet", "full"])
+        .optional()
+        .describe("Detail level: 'summary', 'sheet' (default), or 'full'"),
     },
     async (params) =>
       getCharacter(client, {
         characterId: params.characterId,
         characterName: params.characterName,
+        detail: params.detail,
       })
   );
 
@@ -101,23 +106,6 @@ export async function startServer(): Promise<void> {
     "List all characters across all campaigns",
     {},
     async () => listCharacters(client)
-  );
-
-  server.tool(
-    "get_character_sheet",
-    "Get a comprehensive character sheet with stats, saves, skills, features, and resources. More detailed than get_character.",
-    {
-      characterId: z.coerce.number().optional().describe("The character ID"),
-      characterName: z
-        .string()
-        .optional()
-        .describe("The character name (case-insensitive search)"),
-    },
-    async (params) =>
-      getCharacterSheet(client, {
-        characterId: params.characterId,
-        characterName: params.characterName,
-      })
   );
 
   server.tool(
@@ -140,23 +128,6 @@ export async function startServer(): Promise<void> {
         characterId: params.characterId,
         characterName: params.characterName,
         name: params.name,
-      })
-  );
-
-  server.tool(
-    "get_character_full",
-    "Get the complete character sheet with ALL definitions expanded inline (spells, feats, features, traits, items). Large output (~15-30KB).",
-    {
-      characterId: z.coerce.number().optional().describe("The character ID"),
-      characterName: z
-        .string()
-        .optional()
-        .describe("The character name (case-insensitive search)"),
-    },
-    async (params) =>
-      getCharacterFull(client, {
-        characterId: params.characterId,
-        characterName: params.characterName,
       })
   );
 
@@ -519,6 +490,38 @@ export async function startServer(): Promise<void> {
     async (params) =>
       searchBackgrounds(client, {
         name: params.name,
+      })
+  );
+
+  // Register reference tools - class features
+  server.tool(
+    "search_class_features",
+    "Search for class features by name, class, or level",
+    {
+      name: z.string().optional().describe("Feature name (partial match)"),
+      className: z.string().optional().describe("Class name to filter by (e.g., 'Fighter', 'Wizard')"),
+      level: z.coerce.number().optional().describe("Class level requirement"),
+    },
+    async (params) =>
+      searchClassFeatures(client, {
+        name: params.name,
+        className: params.className,
+        level: params.level,
+      })
+  );
+
+  // Register reference tools - racial traits
+  server.tool(
+    "search_racial_traits",
+    "Search for racial traits by name or race",
+    {
+      name: z.string().optional().describe("Trait name (partial match)"),
+      raceName: z.string().optional().describe("Race name to filter by (e.g., 'Elf', 'Dwarf')"),
+    },
+    async (params) =>
+      searchRacialTraits(client, {
+        name: params.name,
+        raceName: params.raceName,
       })
   );
 

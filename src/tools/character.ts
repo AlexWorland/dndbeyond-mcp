@@ -18,6 +18,7 @@ import { ABILITY_NAMES, ABILITY_SUBTYPE_MAP, calculateAbilityModifier, sumModifi
 interface GetCharacterParams {
   characterId?: number;
   characterName?: string;
+  detail?: "summary" | "sheet" | "full";
 }
 
 interface GetDefinitionParams {
@@ -977,48 +978,33 @@ export async function getCharacter(
   client: DdbClient,
   params: GetCharacterParams
 ): Promise<{ content: Array<{ type: "text"; text: string }> }> {
-  let characterId: number;
-
-  if (params.characterId) {
-    characterId = params.characterId;
-  } else if (params.characterName) {
-    const foundId = await findCharacterByName(client, params.characterName);
-    if (!foundId) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Character "${params.characterName}" not found.`,
-          },
-        ],
-      };
-    }
-    characterId = foundId;
-  } else {
-    return {
-      content: [
-        {
-          type: "text",
-          text: "Either characterId or characterName must be provided.",
-        },
-      ],
-    };
+  const idOrError = await resolveCharacterId(client, params);
+  if (typeof idOrError === "string") {
+    return { content: [{ type: "text", text: idOrError }] };
   }
 
   const character = await client.get<DdbCharacter>(
-    ENDPOINTS.character.get(characterId),
-    `character:${characterId}`,
+    ENDPOINTS.character.get(idOrError),
+    `character:${idOrError}`,
     60_000
   );
 
-  return {
-    content: [
-      {
-        type: "text",
-        text: formatCharacter(character),
-      },
-    ],
-  };
+  const detail = params.detail ?? "sheet";
+  let text: string;
+  switch (detail) {
+    case "summary":
+      text = formatCharacter(character);
+      break;
+    case "full":
+      text = formatCharacterFull(character);
+      break;
+    case "sheet":
+    default:
+      text = formatCharacterSheet(character);
+      break;
+  }
+
+  return { content: [{ type: "text", text }] };
 }
 
 export async function listCharacters(
@@ -1089,26 +1075,8 @@ export async function listCharacters(
 }
 
 // ============================================================================
-// NEW CHARACTER SHEET TOOLS
+// DEFINITION LOOKUP TOOL
 // ============================================================================
-
-export async function getCharacterSheet(
-  client: DdbClient,
-  params: GetCharacterParams
-): Promise<ToolResult> {
-  const idOrError = await resolveCharacterId(client, params);
-  if (typeof idOrError === "string") {
-    return { content: [{ type: "text", text: idOrError }] };
-  }
-
-  const character = await client.get<DdbCharacter>(
-    ENDPOINTS.character.get(idOrError),
-    `character:${idOrError}`,
-    60_000
-  );
-
-  return { content: [{ type: "text", text: formatCharacterSheet(character) }] };
-}
 
 export async function getDefinition(
   client: DdbClient,
@@ -1142,23 +1110,6 @@ export async function getDefinition(
   return { content: [{ type: "text", text: formatted }] };
 }
 
-export async function getCharacterFull(
-  client: DdbClient,
-  params: GetCharacterParams
-): Promise<ToolResult> {
-  const idOrError = await resolveCharacterId(client, params);
-  if (typeof idOrError === "string") {
-    return { content: [{ type: "text", text: idOrError }] };
-  }
-
-  const character = await client.get<DdbCharacter>(
-    ENDPOINTS.character.get(idOrError),
-    `character:${idOrError}`,
-    60_000
-  );
-
-  return { content: [{ type: "text", text: formatCharacterFull(character) }] };
-}
 
 class StringUtils {
   static readonly EMPTY = "";

@@ -1,5 +1,5 @@
 import { DdbClient } from "../api/client.js";
-import { SpellSearchParams, MonsterSearchParams, ItemSearchParams, FeatSearchParams, RaceSearchParams, BackgroundSearchParams } from "../types/reference.js";
+import { SpellSearchParams, MonsterSearchParams, ItemSearchParams, FeatSearchParams, RaceSearchParams, BackgroundSearchParams, ClassFeatureSearchParams, RacialTraitSearchParams } from "../types/reference.js";
 import { DdbCharacter, DdbSpell } from "../types/character.js";
 import { ENDPOINTS } from "../api/endpoints.js";
 
@@ -1241,6 +1241,155 @@ export async function searchBackgrounds(
   for (const bg of matched) {
     const desc = stripHtml(bg.description || "").substring(0, 100);
     lines.push(`- **${bg.name}** — ${desc}${desc.length >= 100 ? "..." : ""}`);
+  }
+
+  return {
+    content: [{ type: "text", text: lines.join("\n") }],
+  };
+}
+
+// --- Class feature types ---
+
+interface DdbClassFeature {
+  id: number;
+  name: string;
+  description: string;
+  snippet: string;
+  requiredLevel: number;
+  classId: number;
+  className?: string;
+  isHomebrew: boolean;
+  sources: Array<{ sourceId: number }>;
+}
+
+/**
+ * Search for class features by name, class, or level.
+ */
+export async function searchClassFeatures(
+  client: DdbClient,
+  params: ClassFeatureSearchParams
+): Promise<ToolResult> {
+  const cacheKey = "game-data:class-features";
+  const features = await client.get<DdbClassFeature[]>(
+    ENDPOINTS.gameData.classFeatureCollection(),
+    cacheKey,
+    86_400_000,
+  );
+
+  let matched = features ?? [];
+
+  if (params.name) {
+    const searchName = params.name.toLowerCase();
+    matched = matched.filter((f) => f.name.toLowerCase().includes(searchName));
+  }
+
+  if (params.className) {
+    const searchClass = params.className.toLowerCase();
+    matched = matched.filter(
+      (f) => f.className?.toLowerCase().includes(searchClass)
+    );
+  }
+
+  if (params.level !== undefined) {
+    matched = matched.filter((f) => f.requiredLevel === params.level);
+  }
+
+  matched.sort((a, b) => {
+    // Sort by class name, then by level, then by feature name
+    const classComp = (a.className || "").localeCompare(b.className || "");
+    if (classComp !== 0) return classComp;
+    if (a.requiredLevel !== b.requiredLevel) return a.requiredLevel - b.requiredLevel;
+    return a.name.localeCompare(b.name);
+  });
+
+  const total = matched.length;
+  matched = matched.slice(0, 30);
+
+  if (matched.length === 0) {
+    return {
+      content: [{ type: "text", text: "No class features found matching the search criteria." }],
+    };
+  }
+
+  const lines = [`# Class Feature Search Results (${total > 30 ? `showing 30 of ${total}` : `${total} found`})\n`];
+  for (const feature of matched) {
+    const className = feature.className || "Unknown";
+    const level = feature.requiredLevel || "?";
+    lines.push(`- **${feature.name}** — ${className} level ${level}`);
+
+    const desc = stripHtml(feature.snippet || feature.description || "").substring(0, 100);
+    if (desc) lines.push(`  ${desc}${desc.length >= 100 ? "..." : ""}`);
+  }
+
+  return {
+    content: [{ type: "text", text: lines.join("\n") }],
+  };
+}
+
+// --- Racial trait types ---
+
+interface DdbRacialTrait {
+  id: number;
+  name: string;
+  description: string;
+  snippet: string;
+  raceId: number;
+  raceName?: string;
+  isHomebrew: boolean;
+  sources: Array<{ sourceId: number }>;
+}
+
+/**
+ * Search for racial traits by name or race.
+ */
+export async function searchRacialTraits(
+  client: DdbClient,
+  params: RacialTraitSearchParams
+): Promise<ToolResult> {
+  const cacheKey = "game-data:racial-traits";
+  const traits = await client.get<DdbRacialTrait[]>(
+    ENDPOINTS.gameData.racialTraitCollection(),
+    cacheKey,
+    86_400_000,
+  );
+
+  let matched = traits ?? [];
+
+  if (params.name) {
+    const searchName = params.name.toLowerCase();
+    matched = matched.filter((t) => t.name.toLowerCase().includes(searchName));
+  }
+
+  if (params.raceName) {
+    const searchRace = params.raceName.toLowerCase();
+    matched = matched.filter(
+      (t) => t.raceName?.toLowerCase().includes(searchRace)
+    );
+  }
+
+  matched.sort((a, b) => {
+    // Sort by race name, then by trait name
+    const raceComp = (a.raceName || "").localeCompare(b.raceName || "");
+    if (raceComp !== 0) return raceComp;
+    return a.name.localeCompare(b.name);
+  });
+
+  const total = matched.length;
+  matched = matched.slice(0, 30);
+
+  if (matched.length === 0) {
+    return {
+      content: [{ type: "text", text: "No racial traits found matching the search criteria." }],
+    };
+  }
+
+  const lines = [`# Racial Trait Search Results (${total > 30 ? `showing 30 of ${total}` : `${total} found`})\n`];
+  for (const trait of matched) {
+    const raceName = trait.raceName || "Unknown";
+    lines.push(`- **${trait.name}** — ${raceName}`);
+
+    const desc = stripHtml(trait.snippet || trait.description || "").substring(0, 100);
+    if (desc) lines.push(`  ${desc}${desc.length >= 100 ? "..." : ""}`);
   }
 
   return {

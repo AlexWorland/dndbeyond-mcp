@@ -120,6 +120,56 @@ describe("searchSpells", () => {
     const matches = (result.content[0].text.match(/Fireball/g) || []).length;
     expect(matches).toBe(1);
   });
+
+  it("should fetch cantrips and spells from separate API calls", async () => {
+    const mockGet = vi.fn()
+      .mockResolvedValueOnce([createMockSpell("Fire Bolt", 0, "Evocation")]) // classLevel=1
+      .mockResolvedValueOnce([createMockSpell("Magic Missile", 1, "Evocation")]); // classLevel=20
+
+    mockClient = {
+      get: mockGet,
+      getRaw: vi.fn(),
+    } as unknown as DdbClient;
+
+    await searchSpells(mockClient, {});
+
+    // Should call get for each of 8 classes, 4 times each (known cantrips, known spells, prepared cantrips, prepared spells)
+    expect(mockGet).toHaveBeenCalledTimes(32);
+  });
+});
+
+describe("spell compendium error handling", () => {
+  it("should handle partial failures and still return results", async () => {
+    let callCount = 0;
+    const mockGet = vi.fn().mockImplementation(() => {
+      callCount++;
+      // Fail first 16 calls (known spells), succeed next 16 (prepared spells)
+      if (callCount <= 16) {
+        return Promise.reject(new Error("API error"));
+      }
+      return Promise.resolve([createMockSpell("Fireball", 3, "Evocation")]);
+    });
+
+    const mockClient = {
+      get: mockGet,
+      getRaw: vi.fn(),
+    } as unknown as DdbClient;
+
+    const result = await searchSpells(mockClient, {});
+
+    expect(result.content[0].text).toContain("Fireball");
+  });
+
+  it("should return error message when all fetches fail", async () => {
+    const mockClient = {
+      get: vi.fn().mockRejectedValue(new Error("API error")),
+      getRaw: vi.fn(),
+    } as unknown as DdbClient;
+
+    const result = await searchSpells(mockClient, {});
+
+    expect(result.content[0].text).toContain("Failed to load spell compendium");
+  });
 });
 
 describe("getSpell", () => {

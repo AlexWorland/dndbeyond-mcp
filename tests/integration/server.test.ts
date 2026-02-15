@@ -213,10 +213,8 @@ describe("MCP Server Integration", () => {
           id: 1,
           name: "Test Campaign",
           dmUsername: "TestDM",
-          characters: [
-            { characterId: 101, characterName: "TestChar1", username: "Player1" },
-            { characterId: 102, characterName: "TestChar2", username: "Player2" },
-          ],
+          playerCount: 2,
+          dateCreated: "1/1/2026",
         },
       ],
     };
@@ -256,7 +254,8 @@ describe("MCP Server Integration", () => {
           id: 1,
           name: "Test Campaign",
           dmUsername: "TestDM",
-          characters: [],
+          playerCount: 0,
+          dateCreated: "1/1/2026",
         },
       ],
     };

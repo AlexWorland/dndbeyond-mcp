@@ -1,7 +1,8 @@
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { DdbClient } from "../api/client.js";
 import { ENDPOINTS } from "../api/endpoints.js";
-import type { DdbCampaign } from "../types/api.js";
+import { HttpError } from "../resilience/index.js";
+import type { DdbCampaign, DdbCampaignCharacter2 } from "../types/api.js";
 
 const CAMPAIGN_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
@@ -15,41 +16,48 @@ export function registerCampaignResources(server: McpServer, client: DdbClient) 
       mimeType: "text/plain",
     },
     async () => {
-      const campaigns = await client.get<DdbCampaign[]>(
-        ENDPOINTS.campaign.list(),
-        "campaigns",
-        CAMPAIGN_CACHE_TTL
-      );
+      try {
+        const campaigns = await client.get<DdbCampaign[]>(
+          ENDPOINTS.campaign.list(),
+          "campaigns",
+          CAMPAIGN_CACHE_TTL
+        );
 
-      if (!campaigns || campaigns.length === 0) {
+        if (!campaigns || campaigns.length === 0) {
+          return {
+            contents: [
+              {
+                uri: "dndbeyond://campaigns",
+                text: "No active campaigns found.",
+                mimeType: "text/plain",
+              },
+            ],
+          };
+        }
+
+        const lines = ["Active Campaigns:", ""];
+        for (const campaign of campaigns) {
+          const playerCount = campaign.playerCount;
+          lines.push(
+            `• ${campaign.name} (ID: ${campaign.id}, DM: ${campaign.dmUsername}, ${playerCount} player${playerCount !== 1 ? "s" : ""})`
+          );
+        }
+
         return {
           contents: [
             {
               uri: "dndbeyond://campaigns",
-              text: "No active campaigns found.",
+              text: lines.join("\n"),
               mimeType: "text/plain",
             },
           ],
         };
+      } catch (error) {
+        if (error instanceof HttpError) {
+          return { contents: [{ uri: "dndbeyond://campaigns", text: `Error: ${error.message}`, mimeType: "text/plain" }] };
+        }
+        throw error;
       }
-
-      const lines = ["Active Campaigns:", ""];
-      for (const campaign of campaigns) {
-        const playerCount = campaign.characters.length;
-        lines.push(
-          `• ${campaign.name} (ID: ${campaign.id}, DM: ${campaign.dmUsername}, ${playerCount} player${playerCount !== 1 ? "s" : ""})`
-        );
-      }
-
-      return {
-        contents: [
-          {
-            uri: "dndbeyond://campaigns",
-            text: lines.join("\n"),
-            mimeType: "text/plain",
-          },
-        ],
-      };
     }
   );
 
@@ -64,58 +72,73 @@ export function registerCampaignResources(server: McpServer, client: DdbClient) 
       mimeType: "text/plain",
     },
     async (uri) => {
-      const match = uri.toString().match(/^dndbeyond:\/\/campaign\/(\d+)\/party$/);
-      if (!match) {
-        throw new Error("Invalid campaign party URI format");
-      }
+      try {
+        const match = uri.toString().match(/^dndbeyond:\/\/campaign\/(\d+)\/party$/);
+        if (!match) {
+          return {
+            contents: [{ uri: uri.toString(), text: "Invalid campaign party URI format. Expected: dndbeyond://campaign/{id}/party", mimeType: "text/plain" }],
+          };
+        }
 
-      const campaignId = parseInt(match[1], 10);
+        const campaignId = parseInt(match[1], 10);
 
-      const campaigns = await client.get<DdbCampaign[]>(
-        ENDPOINTS.campaign.list(),
-        `campaign:${campaignId}:characters`,
-        CAMPAIGN_CACHE_TTL
-      );
+        const campaigns = await client.get<DdbCampaign[]>(
+          ENDPOINTS.campaign.list(),
+          "campaigns",
+          CAMPAIGN_CACHE_TTL
+        );
 
-      const campaign = campaigns.find((c) => c.id === campaignId);
-      if (!campaign) {
+        const campaign = campaigns.find((c) => c.id === campaignId);
+        if (!campaign) {
+          return {
+            contents: [
+              {
+                uri: uri.toString(),
+                text: `Campaign ${campaignId} not found.`,
+                mimeType: "text/plain",
+              },
+            ],
+          };
+        }
+
+        const characters = await client.get<DdbCampaignCharacter2[]>(
+          ENDPOINTS.campaign.characters(campaignId),
+          `campaign:${campaignId}:characters`,
+          CAMPAIGN_CACHE_TTL
+        );
+
+        if (characters.length === 0) {
+          return {
+            contents: [
+              {
+                uri: uri.toString(),
+                text: `Campaign "${campaign.name}" has no characters yet.`,
+                mimeType: "text/plain",
+              },
+            ],
+          };
+        }
+
+        const lines = [`Party Roster for "${campaign.name}":`, ""];
+        for (const character of characters) {
+          lines.push(`• ${character.name} (${character.userName})`);
+        }
+
         return {
           contents: [
             {
               uri: uri.toString(),
-              text: `Campaign ${campaignId} not found.`,
+              text: lines.join("\n"),
               mimeType: "text/plain",
             },
           ],
         };
+      } catch (error) {
+        if (error instanceof HttpError) {
+          return { contents: [{ uri: uri.toString(), text: `Error: ${error.message}`, mimeType: "text/plain" }] };
+        }
+        throw error;
       }
-
-      if (campaign.characters.length === 0) {
-        return {
-          contents: [
-            {
-              uri: uri.toString(),
-              text: `Campaign "${campaign.name}" has no characters yet.`,
-              mimeType: "text/plain",
-            },
-          ],
-        };
-      }
-
-      const lines = [`Party Roster for "${campaign.name}":`, ""];
-      for (const character of campaign.characters) {
-        lines.push(`• ${character.characterName} (${character.username})`);
-      }
-
-      return {
-        contents: [
-          {
-            uri: uri.toString(),
-            text: lines.join("\n"),
-            mimeType: "text/plain",
-          },
-        ],
-      };
     }
   );
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { getCharacterSheet } from "../../src/tools/character.js";
+import { getCharacter } from "../../src/tools/character.js";
 import type { DdbClient } from "../../src/api/client.js";
 import type { DdbCharacter, DdbInventoryItem } from "../../src/types/character.js";
 
@@ -85,7 +85,7 @@ describe("AC Calculation", () => {
     const client = createMockClient();
     vi.mocked(client.get).mockResolvedValue(character);
 
-    const result = await getCharacterSheet(client, { characterId: 12345 });
+    const result = await getCharacter(client, { characterId: 12345, detail: "sheet" });
     const text = result.content[0].text;
 
     expect(text).toContain("AC: 12"); // 10 + 2 (DEX mod)
@@ -129,7 +129,7 @@ describe("AC Calculation", () => {
     const client = createMockClient();
     vi.mocked(client.get).mockResolvedValue(character);
 
-    const result = await getCharacterSheet(client, { characterId: 12345 });
+    const result = await getCharacter(client, { characterId: 12345, detail: "sheet" });
     const text = result.content[0].text;
 
     expect(text).toContain("AC: 13"); // 11 + 2 (full DEX mod)
@@ -173,7 +173,7 @@ describe("AC Calculation", () => {
     const client = createMockClient();
     vi.mocked(client.get).mockResolvedValue(character);
 
-    const result = await getCharacterSheet(client, { characterId: 12345 });
+    const result = await getCharacter(client, { characterId: 12345, detail: "sheet" });
     const text = result.content[0].text;
 
     expect(text).toContain("AC: 15"); // 13 + 2 (DEX capped at +2)
@@ -217,7 +217,7 @@ describe("AC Calculation", () => {
     const client = createMockClient();
     vi.mocked(client.get).mockResolvedValue(character);
 
-    const result = await getCharacterSheet(client, { characterId: 12345 });
+    const result = await getCharacter(client, { characterId: 12345, detail: "sheet" });
     const text = result.content[0].text;
 
     expect(text).toContain("AC: 18"); // 18 only, no DEX
@@ -277,7 +277,7 @@ describe("AC Calculation", () => {
     const client = createMockClient();
     vi.mocked(client.get).mockResolvedValue(character);
 
-    const result = await getCharacterSheet(client, { characterId: 12345 });
+    const result = await getCharacter(client, { characterId: 12345, detail: "sheet" });
     const text = result.content[0].text;
 
     expect(text).toContain("AC: 15"); // 11 + 2 (DEX) + 2 (shield)
@@ -304,7 +304,7 @@ describe("AC Calculation", () => {
     const client = createMockClient();
     vi.mocked(client.get).mockResolvedValue(character);
 
-    const result = await getCharacterSheet(client, { characterId: 12345 });
+    const result = await getCharacter(client, { characterId: 12345, detail: "sheet" });
     const text = result.content[0].text;
 
     expect(text).toContain("AC: 15"); // 10 + 2 (DEX) + 3 (CON)
@@ -331,7 +331,7 @@ describe("AC Calculation", () => {
     const client = createMockClient();
     vi.mocked(client.get).mockResolvedValue(character);
 
-    const result = await getCharacterSheet(client, { characterId: 12345 });
+    const result = await getCharacter(client, { characterId: 12345, detail: "sheet" });
     const text = result.content[0].text;
 
     expect(text).toContain("AC: 16"); // 10 + 2 (DEX) + 4 (WIS)
@@ -376,7 +376,7 @@ describe("AC Calculation", () => {
     const client = createMockClient();
     vi.mocked(client.get).mockResolvedValue(character);
 
-    const result = await getCharacterSheet(client, { characterId: 12345 });
+    const result = await getCharacter(client, { characterId: 12345, detail: "sheet" });
     const text = result.content[0].text;
 
     expect(text).toContain("AC: 14"); // 10 + 2 (DEX) + 2 (modifier)
@@ -431,7 +431,7 @@ describe("Spell Save DC Calculation", () => {
     const client = createMockClient();
     vi.mocked(client.get).mockResolvedValue(character);
 
-    const result = await getCharacterSheet(client, { characterId: 12345 });
+    const result = await getCharacter(client, { characterId: 12345, detail: "sheet" });
     const text = result.content[0].text;
 
     // Spell save DC = 8 + proficiency (3 at level 5) + WIS mod (4)
@@ -494,7 +494,7 @@ describe("Spell Save DC Calculation", () => {
     const client = createMockClient();
     vi.mocked(client.get).mockResolvedValue(character);
 
-    const result = await getCharacterSheet(client, { characterId: 12345 });
+    const result = await getCharacter(client, { characterId: 12345, detail: "sheet" });
     const text = result.content[0].text;
 
     // Spell save DC = 8 + proficiency (3 at level 5) + INT mod (4)
@@ -557,7 +557,7 @@ describe("Spell Save DC Calculation", () => {
     const client = createMockClient();
     vi.mocked(client.get).mockResolvedValue(character);
 
-    const result = await getCharacterSheet(client, { characterId: 12345 });
+    const result = await getCharacter(client, { characterId: 12345, detail: "sheet" });
     const text = result.content[0].text;
 
     // Spell save DC = 8 + proficiency (3 at level 5) + CHA mod (4)
@@ -628,7 +628,7 @@ describe("Spell Save DC Calculation", () => {
     const client = createMockClient();
     vi.mocked(client.get).mockResolvedValue(character);
 
-    const result = await getCharacterSheet(client, { characterId: 12345 });
+    const result = await getCharacter(client, { characterId: 12345, detail: "sheet" });
     const text = result.content[0].text;
 
     // Cleric: 8 + 3 (prof) + 4 (WIS) = DC 15, +7 attack

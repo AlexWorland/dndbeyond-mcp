@@ -25,7 +25,9 @@ export interface DdbCampaign {
   name: string;
   dmId: number;
   dmUsername: string;
-  characters: DdbCampaignCharacter[];
+  playerCount: number;
+  dateCreated: string;
+  characters?: DdbCampaignCharacter2[];
 }
 
 export interface DdbCampaignCharacter {
@@ -33,4 +35,14 @@ export interface DdbCampaignCharacter {
   characterName: string;
   userId: number;
   username: string;
+}
+
+export interface DdbCampaignCharacter2 {
+  id: number;
+  name: string;
+  userId: number;
+  userName: string;
+  avatarUrl: string;
+  characterStatus: number;
+  isAssigned: boolean;
 }

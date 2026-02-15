@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { getCharacterSheet } from "../../src/tools/character.js";
+import { getCharacter } from "../../src/tools/character.js";
 import type { DdbClient } from "../../src/api/client.js";
 import type { DdbCharacter } from "../../src/types/character.js";
 import type { DdbCampaign } from "../../src/types/api.js";
@@ -111,7 +111,7 @@ describe("formatProficiencies in character sheet", () => {
       .mockResolvedValueOnce(mockCampaignCharacters)
       .mockResolvedValueOnce(char);
 
-    const result = await getCharacterSheet(client, { characterName: "Thorin" });
+    const result = await getCharacter(client, { characterName: "Thorin", detail: "sheet" });
     const text = result.content[0].text;
 
     expect(text).toContain("--- Proficiencies ---");
@@ -135,7 +135,7 @@ describe("formatProficiencies in character sheet", () => {
       .mockResolvedValueOnce(mockCampaignCharacters)
       .mockResolvedValueOnce(char);
 
-    const result = await getCharacterSheet(client, { characterName: "Thorin" });
+    const result = await getCharacter(client, { characterName: "Thorin", detail: "sheet" });
     const profSection = result.content[0].text.split("--- Proficiencies ---")[1]?.split("---")[0] ?? "";
 
     // Saving throws should NOT appear in proficiencies section (they have their own section)

@@ -1,38 +1,15 @@
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { DdbClient } from "../api/client.js";
 import { ENDPOINTS } from "../api/endpoints.js";
-import type { DdbCharacter, DdbAbilityScore } from "../types/character.js";
-import type { DdbCampaign } from "../types/api.js";
-
-const ABILITY_NAMES = ["STR", "DEX", "CON", "INT", "WIS", "CHA"];
-
-function computeLevel(char: DdbCharacter): number {
-  return char.classes.reduce((sum, cls) => sum + cls.level, 0);
-}
-
-function calculateAbilityModifier(score: number): string {
-  const modifier = Math.floor((score - 10) / 2);
-  return modifier >= 0 ? `+${modifier}` : `${modifier}`;
-}
-
-function computeFinalAbilityScore(
-  base: DdbAbilityScore[],
-  bonus: DdbAbilityScore[],
-  override: DdbAbilityScore[],
-  id: number
-): number {
-  const overrideValue = override.find((s) => s.id === id)?.value;
-  if (overrideValue !== null && overrideValue !== undefined) return overrideValue;
-
-  const baseValue = base.find((s) => s.id === id)?.value ?? 10;
-  const bonusValue = bonus.find((s) => s.id === id)?.value ?? 0;
-  return baseValue + bonusValue;
-}
+import type { DdbCharacter } from "../types/character.js";
+import type { DdbCampaign, DdbCampaignCharacter2 } from "../types/api.js";
+import { HttpError } from "../resilience/index.js";
+import { ABILITY_NAMES, calculateAbilityModifier, computeFinalAbilityScore, computeLevel, calculateMaxHp, calculateCurrentHp, calculateAc } from "../utils/character-calculations.js";
 
 function formatAbilityScores(char: DdbCharacter): string {
   return ABILITY_NAMES.map((name, idx) => {
     const id = idx + 1;
-    const score = computeFinalAbilityScore(char.stats, char.bonusStats, char.overrideStats, id);
+    const score = computeFinalAbilityScore(char.stats, char.bonusStats, char.overrideStats, char.modifiers, id);
     const modifier = calculateAbilityModifier(score);
     return `${name}: ${score} (${modifier})`;
   }).join(" | ");
@@ -48,28 +25,11 @@ function formatClasses(char: DdbCharacter): string {
   return classes.join(" / ");
 }
 
-function calculateMaxHp(char: DdbCharacter): number {
-  const base = char.baseHitPoints;
-  const bonus = char.bonusHitPoints ?? 0;
-  const override = char.overrideHitPoints;
-  return override ?? (base + bonus);
-}
-
-function calculateCurrentHp(char: DdbCharacter): number {
-  const max = calculateMaxHp(char);
-  return max - char.removedHitPoints;
-}
-
 function formatHp(char: DdbCharacter): string {
   const current = calculateCurrentHp(char);
   const max = calculateMaxHp(char);
   const temp = char.temporaryHitPoints;
   return temp > 0 ? `${current}/${max} (+${temp} temp)` : `${current}/${max}`;
-}
-
-function calculateAc(char: DdbCharacter): number {
-  const dexMod = Math.floor((computeFinalAbilityScore(char.stats, char.bonusStats, char.overrideStats, 2) - 10) / 2);
-  return 10 + dexMod;
 }
 
 function formatCharacter(char: DdbCharacter): string {
@@ -165,64 +125,80 @@ export function registerCharacterResources(server: McpServer, client: DdbClient)
       mimeType: "text/plain",
     },
     async () => {
-      const campaignsResponse = await client.get<DdbCampaign[]>(
-        ENDPOINTS.campaign.list(),
-        "campaigns",
-        300_000
-      );
+      try {
+        const campaignsResponse = await client.get<DdbCampaign[]>(
+          ENDPOINTS.campaign.list(),
+          "campaigns",
+          300_000
+        );
 
-      const allCharacters = campaignsResponse.flatMap((campaign) =>
-        campaign.characters.map((char) => ({
-          id: char.characterId,
-          name: char.characterName,
-          campaignName: campaign.name,
-        }))
-      );
+        // Fetch characters from each campaign using the new endpoint
+        const allCharacters: Array<{ id: number; name: string; campaignName: string }> = [];
+        for (const campaign of campaignsResponse) {
+          const characters = await client.get<DdbCampaignCharacter2[]>(
+            ENDPOINTS.campaign.characters(campaign.id),
+            `campaign:${campaign.id}:characters`,
+            300_000
+          );
+          allCharacters.push(...characters.map((char) => ({
+            id: char.id,
+            name: char.name,
+            campaignName: campaign.name,
+          })));
+        }
 
-      if (allCharacters.length === 0) {
+        if (allCharacters.length === 0) {
+          return {
+            contents: [
+              {
+                uri: "dndbeyond://characters",
+                text: "No characters found.",
+                mimeType: "text/plain",
+              },
+            ],
+          };
+        }
+
+        // N+1 query: fetches full character data for each character individually.
+        // Acceptable for typical usage (5-10 characters) since results are cached.
+        const characterDetails = await Promise.all(
+          allCharacters.map(async (char) => {
+            const details = await client.get<DdbCharacter>(
+              ENDPOINTS.character.get(char.id),
+              `character:${char.id}`,
+              60_000
+            );
+            return {
+              id: char.id,
+              name: details.name,
+              race: details.race.fullName,
+              classes: formatClasses(details),
+              level: computeLevel(details),
+              campaign: char.campaignName,
+            };
+          })
+        );
+
+        const lines = characterDetails.map(
+          (char) =>
+            `ID: ${char.id} | ${char.name} - ${char.race} ${char.classes} (Level ${char.level}) - ${char.campaign}`
+        );
+
         return {
           contents: [
             {
               uri: "dndbeyond://characters",
-              text: "No characters found.",
+              text: `Characters:\n${lines.join("\n")}`,
               mimeType: "text/plain",
             },
           ],
         };
+      } catch (error) {
+        if (error instanceof HttpError) {
+          return { contents: [{ uri: "dndbeyond://characters", text: `Error: ${error.message}`, mimeType: "text/plain" }] };
+        }
+        throw error;
       }
-
-      const characterDetails = await Promise.all(
-        allCharacters.map(async (char) => {
-          const details = await client.get<DdbCharacter>(
-            ENDPOINTS.character.get(char.id),
-            `character:${char.id}`,
-            60_000
-          );
-          return {
-            id: char.id,
-            name: details.name,
-            race: details.race.fullName,
-            classes: formatClasses(details),
-            level: computeLevel(details),
-            campaign: char.campaignName,
-          };
-        })
-      );
-
-      const lines = characterDetails.map(
-        (char) =>
-          `ID: ${char.id} | ${char.name} - ${char.race} ${char.classes} (Level ${char.level}) - ${char.campaign}`
-      );
-
-      return {
-        contents: [
-          {
-            uri: "dndbeyond://characters",
-            text: `Characters:\n${lines.join("\n")}`,
-            mimeType: "text/plain",
-          },
-        ],
-      };
     }
   );
 
@@ -248,22 +224,29 @@ export function registerCharacterResources(server: McpServer, client: DdbClient)
         };
       }
 
-      const characterId = parseInt(match[1], 10);
-      const character = await client.get<DdbCharacter>(
-        ENDPOINTS.character.get(characterId),
-        `character:${characterId}`,
-        60_000
-      );
+      try {
+        const characterId = parseInt(match[1], 10);
+        const character = await client.get<DdbCharacter>(
+          ENDPOINTS.character.get(characterId),
+          `character:${characterId}`,
+          60_000
+        );
 
-      return {
-        contents: [
-          {
-            uri: uriString,
-            text: formatCharacter(character),
-            mimeType: "text/plain",
-          },
-        ],
-      };
+        return {
+          contents: [
+            {
+              uri: uriString,
+              text: formatCharacter(character),
+              mimeType: "text/plain",
+            },
+          ],
+        };
+      } catch (error) {
+        if (error instanceof HttpError) {
+          return { contents: [{ uri: uriString, text: `Error: ${error.message}`, mimeType: "text/plain" }] };
+        }
+        throw error;
+      }
     }
   );
 
@@ -289,22 +272,29 @@ export function registerCharacterResources(server: McpServer, client: DdbClient)
         };
       }
 
-      const characterId = parseInt(match[1], 10);
-      const character = await client.get<DdbCharacter>(
-        ENDPOINTS.character.get(characterId),
-        `character:${characterId}`,
-        60_000
-      );
+      try {
+        const characterId = parseInt(match[1], 10);
+        const character = await client.get<DdbCharacter>(
+          ENDPOINTS.character.get(characterId),
+          `character:${characterId}`,
+          60_000
+        );
 
-      return {
-        contents: [
-          {
-            uri: uriString,
-            text: formatSpellList(character),
-            mimeType: "text/plain",
-          },
-        ],
-      };
+        return {
+          contents: [
+            {
+              uri: uriString,
+              text: formatSpellList(character),
+              mimeType: "text/plain",
+            },
+          ],
+        };
+      } catch (error) {
+        if (error instanceof HttpError) {
+          return { contents: [{ uri: uriString, text: `Error: ${error.message}`, mimeType: "text/plain" }] };
+        }
+        throw error;
+      }
     }
   );
 
@@ -330,22 +320,29 @@ export function registerCharacterResources(server: McpServer, client: DdbClient)
         };
       }
 
-      const characterId = parseInt(match[1], 10);
-      const character = await client.get<DdbCharacter>(
-        ENDPOINTS.character.get(characterId),
-        `character:${characterId}`,
-        60_000
-      );
+      try {
+        const characterId = parseInt(match[1], 10);
+        const character = await client.get<DdbCharacter>(
+          ENDPOINTS.character.get(characterId),
+          `character:${characterId}`,
+          60_000
+        );
 
-      return {
-        contents: [
-          {
-            uri: uriString,
-            text: formatInventory(character),
-            mimeType: "text/plain",
-          },
-        ],
-      };
+        return {
+          contents: [
+            {
+              uri: uriString,
+              text: formatInventory(character),
+              mimeType: "text/plain",
+            },
+          ],
+        };
+      } catch (error) {
+        if (error instanceof HttpError) {
+          return { contents: [{ uri: uriString, text: `Error: ${error.message}`, mimeType: "text/plain" }] };
+        }
+        throw error;
+      }
     }
   );
 }
