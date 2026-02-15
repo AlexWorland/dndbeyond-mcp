@@ -982,26 +982,56 @@ async function extractRaces(token, config) {
 
   console.log(`  Loaded ${races.length} races`);
 
+  // Deduplicate by fullName (subraces may share baseRaceName)
+  const seen = new Map();
   for (const race of races) {
-    if (!race.name) continue;
-    const md = [
-      `# ${race.name}`,
-      "",
-      stripHtml(race.description || "No description available."),
-    ].join("\n");
+    const name = race.fullName || race.baseName;
+    if (!name) continue;
+    if (!seen.has(name) || (race.description || "").length > (seen.get(name).description || "").length) {
+      seen.set(name, race);
+    }
+  }
+  const uniqueRaces = Array.from(seen.values());
 
-    writeMarkdown(baseDir, race.name, md);
+  for (const race of uniqueRaces) {
+    const name = race.fullName || race.baseName;
+    const lines = [`# ${name}`, ""];
+
+    if (race.size) lines.push(`**Size:** ${race.size}`);
+    if (race.isSubRace && race.baseRaceName) lines.push(`**Base Race:** ${race.baseRaceName}`);
+    if (race.isLegacy) lines.push(`**Legacy:** Yes`);
+    lines.push("");
+
+    lines.push(stripHtml(race.description || "No description available."));
+
+    // Racial traits
+    if (race.racialTraits && race.racialTraits.length > 0) {
+      lines.push("", "## Racial Traits", "");
+      for (const trait of race.racialTraits) {
+        const traitName = trait.definition?.name || trait.name;
+        const traitDesc = trait.definition?.description || trait.description || "";
+        if (traitName) {
+          lines.push(`### ${traitName}`, "");
+          lines.push(stripHtml(traitDesc));
+          lines.push("");
+        }
+      }
+    }
+
+    writeMarkdown(baseDir, name, lines.join("\n"));
   }
 
   // Write index
-  const indexLines = ["# Race Compendium", "", `Total: ${races.length} races`, ""];
-  for (const race of races.filter(r => r.name).sort((a, b) => a.name.localeCompare(b.name))) {
-    indexLines.push(`- [[${race.name}]]`);
+  const indexLines = ["# Race Compendium", "", `Total: ${uniqueRaces.length} races`, ""];
+  for (const race of uniqueRaces.sort((a, b) => (a.fullName || a.baseName).localeCompare(b.fullName || b.baseName))) {
+    const name = race.fullName || race.baseName;
+    const legacy = race.isLegacy ? " (Legacy)" : "";
+    indexLines.push(`- [[${name}]]${legacy}`);
   }
   writeMarkdown(baseDir, "Race Index", indexLines.join("\n"));
 
-  console.log(`  Wrote ${races.length} race files + index`);
-  return races.length;
+  console.log(`  Wrote ${uniqueRaces.length} race files + index`);
+  return uniqueRaces.length;
 }
 
 // ============================================================================
