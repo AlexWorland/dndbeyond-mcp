@@ -970,17 +970,42 @@ async function extractRaces(token, config) {
   console.log("\n=== RACES ===");
   const baseDir = join(OBSIDIAN_BASE, "Races");
 
-  const races = await fetchApi(
-    `${DDB_CHARACTER_SERVICE}/character/v5/game-data/races`,
-    token, config
-  );
+  // Discover campaign ID from character data (campaign-scoped endpoint returns 121 races vs 33)
+  let campaignId = null;
+  try {
+    const userIdCookie = config.cookies.find(c => c.name === "User.ID");
+    if (userIdCookie) {
+      const charList = await fetchApi(
+        `${DDB_CHARACTER_SERVICE}/character/v5/characters/list?userId=${userIdCookie.value}`,
+        token, config
+      );
+      if (Array.isArray(charList) && charList.length > 0) {
+        const firstId = charList[0].id || charList[0].characterId;
+        const charData = await fetchApi(
+          `${DDB_CHARACTER_SERVICE}/character/v5/character/${firstId}?includeCustomItems=true`,
+          token, config
+        );
+        if (charData?.campaign?.id) {
+          campaignId = charData.campaign.id;
+          console.log(`  Using campaign ID ${campaignId} from character ${charData.name}`);
+        }
+      }
+    }
+  } catch (e) {
+    console.warn(`  Campaign discovery failed: ${e.message}`);
+  }
+
+  const raceUrl = campaignId
+    ? `${DDB_CHARACTER_SERVICE}/character/v5/game-data/races?campaignId=${campaignId}&sharingSetting=2`
+    : `${DDB_CHARACTER_SERVICE}/character/v5/game-data/races`;
+  const races = await fetchApi(raceUrl, token, config);
 
   if (!Array.isArray(races)) {
     console.warn("  No races returned");
     return 0;
   }
 
-  console.log(`  Loaded ${races.length} races`);
+  console.log(`  Loaded ${races.length} races${campaignId ? " (campaign-scoped)" : ""}`);
 
   // Deduplicate by fullName (subraces may share baseRaceName)
   const seen = new Map();
