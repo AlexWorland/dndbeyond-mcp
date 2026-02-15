@@ -26,7 +26,8 @@
     "start": "node build/src/index.js",
     "setup": "node build/setup/auth-flow.js",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:live": "vitest run --config vitest.live.config.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",

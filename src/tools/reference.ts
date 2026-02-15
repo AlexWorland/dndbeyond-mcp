@@ -1172,7 +1172,7 @@ export async function searchRaces(
     86_400_000,
   );
 
-  let matched = races ?? [];
+  let matched = (races ?? []).filter((r) => r.name);
 
   if (params.name) {
     const searchName = params.name.toLowerCase();
