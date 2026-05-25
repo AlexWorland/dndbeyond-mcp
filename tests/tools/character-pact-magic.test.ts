@@ -7,10 +7,10 @@ describe("updatePactMagic", () => {
 
   beforeEach(() => {
     mockClient = {
-      get: vi.fn(),
+      get: vi.fn().mockResolvedValue({ name: "Test Warlock", pactMagic: { level: 2, used: 0, available: 2 } }),
       getRaw: vi.fn(),
-      put: vi.fn(),
-    };
+      put: vi.fn().mockResolvedValue({}),
+    } as unknown as DdbClient;
   });
 
   it("should update pact magic slots", async () => {
@@ -20,8 +20,8 @@ describe("updatePactMagic", () => {
     });
 
     expect(mockClient.put).toHaveBeenCalledWith(
-      "https://character-service.dndbeyond.com/character/v5/character/123/spell/pact-magic",
-      { used: 1 },
+      "https://character-service.dndbeyond.com/character/v5/spell/slots",
+      { characterId: 123, spellslots: { level2: 1 }, pact: true },
       ["character:123"]
     );
 
@@ -45,8 +45,8 @@ describe("updatePactMagic", () => {
     });
 
     expect(mockClient.put).toHaveBeenCalledWith(
-      "https://character-service.dndbeyond.com/character/v5/character/123/spell/pact-magic",
-      { used: 0 },
+      "https://character-service.dndbeyond.com/character/v5/spell/slots",
+      { characterId: 123, spellslots: { level2: 0 }, pact: true },
       ["character:123"]
     );
 

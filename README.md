@@ -6,7 +6,7 @@ A TypeScript MCP (Model Context Protocol) server for D&D Beyond. Gives Claude (a
 
 ## Features
 
-- **Character Management** — Read character sheets, update HP, spell slots, death saves, currency
+- **Character Management** — Read character sheets, update HP, spell slots, death saves, currency, inventory, and custom items
 - **Campaign Access** — List campaigns, view party rosters
 - **Reference Lookups** — Search and retrieve spells, monsters, magic items, feats, conditions, classes
 - **Workflow Prompts** — Session prep, encounter building, level-up guidance, spell recommendations
@@ -66,6 +66,20 @@ After adding the configuration, restart Claude Desktop.
 - `update_death_saves` — Record death saves
 - `update_currency` — Modify gold/silver/copper
 - `use_ability` — Decrement limited-use features
+- `set_progression` — Set current XP/progression
+- `set_hp_base` / `set_hp_bonus` / `set_hp_override` / `restore_hp` — Manage HP internals
+- `set_character_preference` / `set_help_text` — Update sheet preferences/help text
+- `add_known_spell` / `remove_known_spell` / `set_spell_prepared` — Manage known/prepared class spells
+- `list_experimental_ddb_endpoints` / `call_experimental_ddb_endpoint` — Allowlisted long-tail character-service endpoints from D&D Beyond's web app for payload-specific operations not yet modeled as typed tools
+- `list_inventory_items` — List inventory and IDs used by inventory write tools
+- `add_catalog_item` — Add an official/catalog item by name or entity ID
+- `set_inventory_item_quantity` — Change item quantity
+- `set_inventory_item_equipped` — Equip or unequip an item
+- `set_inventory_item_attuned` — Attune or unattune an item
+- `set_inventory_item_charge` — Update item charges
+- `move_inventory_item` — Move items into/out of containers
+- `remove_inventory_item` — Remove an inventory item
+- `create_custom_item` / `update_custom_item` / `delete_custom_item` — Manage custom items
 
 ### Campaign
 - `list_campaigns` — Your active campaigns

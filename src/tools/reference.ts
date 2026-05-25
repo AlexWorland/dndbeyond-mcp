@@ -1153,8 +1153,9 @@ export async function searchClasses(
 interface DdbRace {
   entityRaceId: number;
   entityRaceTypeId: number;
-  fullName: string;
-  baseName: string;
+  fullName?: string;
+  baseName?: string;
+  name?: string;
   baseRaceName: string;
   description: string;
   isHomebrew: boolean;
@@ -1178,16 +1179,15 @@ export async function searchRaces(
     86_400_000,
   );
 
-  let matched = (races ?? []).filter((r) => r.fullName || r.baseName);
+  const raceName = (race: DdbRace): string => race.fullName || race.baseName || race.name || "";
+  let matched = (races ?? []).filter((r) => raceName(r));
 
   if (params.name) {
     const searchName = params.name.toLowerCase();
-    matched = matched.filter((r) =>
-      (r.fullName || r.baseName).toLowerCase().includes(searchName)
-    );
+    matched = matched.filter((r) => raceName(r).toLowerCase().includes(searchName));
   }
 
-  matched.sort((a, b) => (a.fullName || a.baseName).localeCompare(b.fullName || b.baseName));
+  matched.sort((a, b) => raceName(a).localeCompare(raceName(b)));
 
   if (matched.length === 0) {
     return {
@@ -1197,7 +1197,7 @@ export async function searchRaces(
 
   const lines = [`# Race Search Results (${matched.length} found)\n`];
   for (const race of matched) {
-    const name = race.fullName || race.baseName;
+    const name = raceName(race);
     const desc = stripHtml(race.description || "").substring(0, 100);
     const legacy = race.isLegacy ? " *(Legacy)*" : "";
     lines.push(`- **${name}**${legacy} — ${desc}${desc.length >= 100 ? "..." : ""}`);

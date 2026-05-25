@@ -1,5 +1,24 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { updateHp, updateSpellSlots, updateDeathSaves, updateCurrency, useAbility } from "../../src/tools/character.js";
+import {
+  addCatalogItem,
+  callExperimentalDdbEndpoint,
+  createCustomItem,
+  deleteCustomItem,
+  listExperimentalDdbEndpoints,
+  listInventoryItems,
+  moveInventoryItem,
+  removeInventoryItem,
+  setInventoryItemAttuned,
+  setInventoryItemCharge,
+  setInventoryItemEquipped,
+  setInventoryItemQuantity,
+  updateCurrency,
+  updateCustomItem,
+  updateDeathSaves,
+  updateHp,
+  updateSpellSlots,
+  useAbility,
+} from "../../src/tools/character.js";
 import type { DdbClient } from "../../src/api/client.js";
 import type { DdbCharacter } from "../../src/types/character.js";
 
@@ -156,8 +175,8 @@ describe("updateSpellSlots", () => {
     });
 
     expect(mockClient.put).toHaveBeenCalledWith(
-      expect.stringContaining("/character/v5/character/123/spell/slots"),
-      { level: 3, used: 2 },
+      expect.stringContaining("/character/v5/spell/slots"),
+      { characterId: 123, spellslots: { level3: 2 }, update: true },
       ["character:123"]
     );
     expect(result.content[0].text).toContain("Updated level 3 spell slots to 2 used");
@@ -202,6 +221,7 @@ describe("updateDeathSaves", () => {
 
   beforeEach(() => {
     mockClient = {
+      get: vi.fn().mockResolvedValue({ deathSaves: { successCount: 0, failCount: 0 } }),
       put: vi.fn().mockResolvedValue({}),
     } as unknown as DdbClient;
   });
@@ -214,8 +234,8 @@ describe("updateDeathSaves", () => {
     });
 
     expect(mockClient.put).toHaveBeenCalledWith(
-      expect.stringContaining("/character/v5/character/123/life/death-saves"),
-      { successCount: 2 },
+      expect.stringContaining("/character/v5/life/death-saves"),
+      { characterId: 123, successCount: 2, failCount: 0 },
       ["character:123"]
     );
     expect(result.content[0].text).toContain("Updated death saves: 2 successes");
@@ -229,8 +249,8 @@ describe("updateDeathSaves", () => {
     });
 
     expect(mockClient.put).toHaveBeenCalledWith(
-      expect.stringContaining("/character/v5/character/123/life/death-saves"),
-      { failCount: 1 },
+      expect.stringContaining("/character/v5/life/death-saves"),
+      { characterId: 123, successCount: 0, failCount: 1 },
       ["character:123"]
     );
     expect(result.content[0].text).toContain("Updated death saves: 1 failure");
@@ -275,6 +295,7 @@ describe("updateCurrency", () => {
 
   beforeEach(() => {
     mockClient = {
+      get: vi.fn().mockResolvedValue({ currencies: { cp: 0, sp: 0, ep: 0, gp: 0, pp: 0 } }),
       put: vi.fn().mockResolvedValue({}),
     } as unknown as DdbClient;
   });
@@ -287,8 +308,8 @@ describe("updateCurrency", () => {
     });
 
     expect(mockClient.put).toHaveBeenCalledWith(
-      expect.stringContaining("/character/v5/character/123/inventory/currency"),
-      { gp: 150 },
+      expect.stringContaining("/character/v5/inventory/currency"),
+      { characterId: 123, cp: 0, sp: 0, ep: 0, gp: 150, pp: 0 },
       ["character:123"]
     );
     expect(result.content[0].text).toContain("Set GP to 150");
@@ -306,7 +327,7 @@ describe("updateCurrency", () => {
 
       expect(mockClient.put).toHaveBeenCalledWith(
         expect.anything(),
-        { [currency]: 10 },
+        { characterId: 123, cp: 0, sp: 0, ep: 0, gp: 0, pp: 0, [currency]: 10 },
         ["character:123"]
       );
     }
@@ -429,5 +450,160 @@ describe("updateHp with temporary HP", () => {
       ["character:123"]
     );
     expect(result.content[0].text).toContain("(0 temp HP)");
+  });
+});
+
+describe("experimental DDB endpoint tools", () => {
+  it("lists allowlisted endpoint keys", async () => {
+    const result = await listExperimentalDdbEndpoints();
+    expect(result.content[0].text).toContain("party_inventory");
+    expect(result.content[0].text).toContain("/character/v5/party/inventory/{campaignId}");
+  });
+
+  it("calls GET endpoints with interpolated path params and stable cache key", async () => {
+    const mockClient = {
+      get: vi.fn().mockResolvedValue({ partyItems: [] }),
+    } as unknown as DdbClient;
+
+    const result = await callExperimentalDdbEndpoint(mockClient, {
+      endpoint: "party_inventory",
+      body: { campaignId: 42 },
+    });
+
+    expect(mockClient.get).toHaveBeenCalledWith(
+      expect.stringContaining("/character/v5/party/inventory/42?campaignId=42"),
+      expect.stringContaining('experimental:party_inventory'),
+      0
+    );
+    expect(result.content[0].text).toContain("Called GET");
+  });
+
+  it("returns friendly errors for unknown endpoints and missing path params", async () => {
+    const mockClient = { get: vi.fn() } as unknown as DdbClient;
+
+    const unknown = await callExperimentalDdbEndpoint(mockClient, { endpoint: "nope" });
+    expect(unknown.content[0].text).toContain("Unknown experimental endpoint");
+
+    const missing = await callExperimentalDdbEndpoint(mockClient, { endpoint: "party_inventory" });
+    expect(missing.content[0].text).toContain("Missing path parameter: campaignId");
+    expect(mockClient.get).not.toHaveBeenCalled();
+  });
+});
+
+describe("inventory and custom item helpers", () => {
+  const catalogItem = {
+    id: 9001,
+    quantity: 2,
+    equipped: false,
+    isAttuned: false,
+    definition: { id: 101, entityTypeId: 202, name: "Dagger", definitionKey: "202:101", isCustomItem: false },
+  };
+  const customItem = {
+    id: 9002,
+    quantity: 1,
+    equipped: false,
+    isAttuned: false,
+    definition: { id: 303, entityTypeId: 988229960, name: "Custom Torch", definitionKey: "988229960:303", isCustomItem: true, weight: 1, cost: 2 },
+  };
+  const inventoryCharacter = {
+    ...mockCharacter,
+    inventory: [catalogItem, customItem] as any,
+  };
+
+  it("lists inventory items and can filter custom items", async () => {
+    const mockClient = { get: vi.fn().mockResolvedValue(inventoryCharacter) } as unknown as DdbClient;
+
+    const all = await listInventoryItems(mockClient, { characterId: 123 });
+    expect(all.content[0].text).toContain("Dagger");
+    expect(all.content[0].text).toContain("Custom Torch");
+
+    const nonCustom = await listInventoryItems(mockClient, { characterId: 123, includeCustom: false });
+    expect(nonCustom.content[0].text).toContain("Dagger");
+    expect(nonCustom.content[0].text).not.toContain("Custom Torch");
+  });
+
+  it("adds catalog items by explicit IDs or name lookup", async () => {
+    const mockClient = {
+      get: vi.fn().mockResolvedValue([{ id: 55, entityTypeId: 66, name: "Rope" }]),
+      post: vi.fn().mockResolvedValue({}),
+    } as unknown as DdbClient;
+
+    await addCatalogItem(mockClient, { characterId: 123, entityId: 1, entityTypeId: 2, quantity: 3 });
+    expect(mockClient.post).toHaveBeenCalledWith(
+      expect.stringContaining("/inventory/item"),
+      expect.objectContaining({ characterId: 123, equipment: [expect.objectContaining({ entityId: 1, entityTypeId: 2, quantity: 3 })] }),
+      ["character:123"]
+    );
+
+    await addCatalogItem(mockClient, { characterId: 123, itemName: "rope" });
+    expect(mockClient.post).toHaveBeenLastCalledWith(
+      expect.stringContaining("/inventory/item"),
+      expect.objectContaining({ equipment: [expect.objectContaining({ entityId: 55, entityTypeId: 66, quantity: 1 })] }),
+      ["character:123"]
+    );
+  });
+
+  it("rejects invalid catalog quantity", async () => {
+    const mockClient = { post: vi.fn() } as unknown as DdbClient;
+    const result = await addCatalogItem(mockClient, { characterId: 123, entityId: 1, entityTypeId: 2, quantity: 0 });
+    expect(result.content[0].text).toContain("Quantity must be a positive integer");
+    expect(mockClient.post).not.toHaveBeenCalled();
+  });
+
+  it("updates inventory item quantity/equipped/attuned/charges and movement", async () => {
+    const mockClient = { put: vi.fn().mockResolvedValue({}) } as unknown as DdbClient;
+
+    await setInventoryItemQuantity(mockClient, { characterId: 123, inventoryItemId: 9001, quantity: 4 });
+    await setInventoryItemEquipped(mockClient, { characterId: 123, inventoryItemId: 9001, value: true });
+    await setInventoryItemAttuned(mockClient, { characterId: 123, inventoryItemId: 9001, value: true });
+    await setInventoryItemCharge(mockClient, { characterId: 123, inventoryItemId: 9001, charges: 2 });
+    await moveInventoryItem(mockClient, { characterId: 123, inventoryItemId: 9001, containerEntityId: 777, containerEntityTypeId: 888 });
+
+    expect(mockClient.put).toHaveBeenCalledWith(expect.stringContaining("/inventory/item/quantity"), { characterId: 123, id: 9001, quantity: 4 }, ["character:123"]);
+    expect(mockClient.put).toHaveBeenCalledWith(expect.stringContaining("/inventory/item/equipped"), { characterId: 123, id: 9001, value: true }, ["character:123"]);
+    expect(mockClient.put).toHaveBeenCalledWith(expect.stringContaining("/inventory/item/attuned"), { characterId: 123, id: 9001, value: true }, ["character:123"]);
+    expect(mockClient.put).toHaveBeenCalledWith(expect.stringContaining("/inventory/item/charge"), { characterId: 123, id: 9001, charges: 2 }, ["character:123"]);
+    expect(mockClient.put).toHaveBeenCalledWith(expect.stringContaining("/inventory/item/move"), { characterId: 123, id: 9001, containerEntityId: 777, containerEntityTypeId: 888 }, ["character:123"]);
+  });
+
+  it("removes catalog items directly and custom items without a second fetch", async () => {
+    const mockClient = {
+      get: vi.fn().mockResolvedValue(inventoryCharacter),
+      delete: vi.fn().mockResolvedValue({}),
+    } as unknown as DdbClient;
+
+    await removeInventoryItem(mockClient, { characterId: 123, inventoryItemId: 9001 });
+    expect(mockClient.delete).toHaveBeenCalledWith(expect.stringContaining("/inventory/item"), { characterId: 123, id: 9001 }, ["character:123"]);
+
+    await removeInventoryItem(mockClient, { characterId: 123, inventoryItemId: 9002 });
+    expect(mockClient.get).toHaveBeenCalledTimes(2);
+    expect(mockClient.delete).toHaveBeenLastCalledWith(expect.stringContaining("/custom/item"), { characterId: 123, id: 303, mappingId: 9002, partyId: null }, ["character:123"]);
+  });
+
+  it("creates, updates, and deletes custom items", async () => {
+    const mockClient = {
+      get: vi.fn().mockResolvedValue(inventoryCharacter),
+      post: vi.fn().mockResolvedValue({ addItems: [customItem] }),
+      put: vi.fn().mockResolvedValue({}),
+      delete: vi.fn().mockResolvedValue({}),
+    } as unknown as DdbClient;
+
+    await createCustomItem(mockClient, { characterId: 123, name: "Lantern", quantity: 1, weight: 2, cost: 5 });
+    expect(mockClient.post).toHaveBeenCalledWith(expect.stringContaining("/custom/item"), expect.objectContaining({ characterId: 123, name: "Lantern", quantity: 1, weight: 2, cost: 5 }), ["character:123"]);
+
+    await updateCustomItem(mockClient, { characterId: 123, inventoryItemId: 9002, name: "Updated Torch", quantity: 2 });
+    expect(mockClient.put).toHaveBeenCalledWith(expect.stringContaining("/custom/item"), expect.objectContaining({ characterId: 123, id: 303, mappingId: 9002, name: "Updated Torch", quantity: 2 }), ["character:123"]);
+
+    await deleteCustomItem(mockClient, { characterId: 123, inventoryItemId: 9002 });
+    expect(mockClient.delete).toHaveBeenCalledWith(expect.stringContaining("/custom/item"), { characterId: 123, id: 303, mappingId: 9002, partyId: null }, ["character:123"]);
+  });
+
+  it("rejects invalid custom item inputs", async () => {
+    const mockClient = { post: vi.fn(), put: vi.fn() } as unknown as DdbClient;
+
+    expect((await createCustomItem(mockClient, { characterId: 123, name: " ", quantity: 1 })).content[0].text).toContain("name cannot be empty");
+    expect((await createCustomItem(mockClient, { characterId: 123, name: "Bad", quantity: 0 })).content[0].text).toContain("Quantity must be a positive integer");
+    expect((await setInventoryItemQuantity(mockClient, { characterId: 123, inventoryItemId: 1, quantity: -1 })).content[0].text).toContain("Quantity must be a non-negative integer");
+    expect((await setInventoryItemCharge(mockClient, { characterId: 123, inventoryItemId: 1, charges: -1 })).content[0].text).toContain("Charges must be a non-negative integer");
   });
 });

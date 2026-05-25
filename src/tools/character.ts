@@ -1,5 +1,5 @@
 import type { DdbClient } from "../api/client.js";
-import { ENDPOINTS } from "../api/endpoints.js";
+import { DDB_CHARACTER_SERVICE, ENDPOINTS } from "../api/endpoints.js";
 import { HttpError } from "../resilience/index.js";
 import type {
   DdbCharacter,
@@ -28,6 +28,159 @@ interface GetDefinitionParams {
 }
 
 type ToolResult = { content: Array<{ type: "text"; text: string }> };
+
+type ExperimentalDdbMethod = "GET" | "POST" | "PUT" | "DELETE";
+
+const EXPERIMENTAL_CHARACTER_ENDPOINTS: Record<string, { method: ExperimentalDdbMethod; path: string; note?: string }> = {
+  party_inventory: { method: "GET", path: "party/inventory/{campaignId}" },
+  campaign_setting: { method: "PUT", path: "campaign-setting" },
+  character_source_categories: { method: "PUT", path: "character/source-categories" },
+  custom_background: { method: "PUT", path: "custom/background" },
+  has_custom_background: { method: "PUT", path: "configuration/has-custom-background" },
+  custom_value: { method: "PUT", path: "custom/value" },
+  delete_custom_value: { method: "DELETE", path: "custom/value" },
+  delete_custom_entity_values: { method: "DELETE", path: "custom/entity/values" },
+  create_custom_proficiency: { method: "POST", path: "custom/proficiency" },
+  update_custom_proficiency: { method: "PUT", path: "custom/proficiency" },
+  delete_custom_proficiency: { method: "DELETE", path: "custom/proficiency" },
+  create_custom_movement: { method: "POST", path: "custom/movement" },
+  update_custom_movement: { method: "PUT", path: "custom/movement" },
+  delete_custom_movement: { method: "DELETE", path: "custom/movement" },
+  create_custom_action: { method: "POST", path: "custom/action" },
+  update_custom_action: { method: "PUT", path: "custom/action" },
+  delete_custom_action: { method: "DELETE", path: "custom/action" },
+  create_custom_sense: { method: "POST", path: "custom/sense" },
+  update_custom_sense: { method: "PUT", path: "custom/sense" },
+  delete_custom_sense: { method: "DELETE", path: "custom/sense" },
+  create_custom_defense_adjustment: { method: "POST", path: "custom/defense-adjustment" },
+  update_custom_defense_adjustment: { method: "PUT", path: "custom/defense-adjustment" },
+  delete_custom_defense_adjustment: { method: "DELETE", path: "custom/defense-adjustment" },
+  set_backdrop: { method: "PUT", path: "decoration/backdrop" },
+  set_frame: { method: "PUT", path: "decoration/frame" },
+  set_portrait: { method: "PUT", path: "decoration/portrait" },
+  create_custom_portrait: { method: "POST", path: "decoration/portrait/custom" },
+  set_theme_color: { method: "PUT", path: "decoration/theme-color" },
+  set_social_image: { method: "PUT", path: "decoration/social-image" },
+  get_roll_result_groups: { method: "GET", path: "roll-result-groups" },
+  create_roll_result_group: { method: "POST", path: "roll-result-group" },
+  update_roll_result: { method: "PUT", path: "roll-result" },
+  update_roll_result_group: { method: "PUT", path: "roll-result-group" },
+  update_roll_result_group_order: { method: "PUT", path: "roll-result-group/order" },
+  delete_roll_result_group: { method: "DELETE", path: "roll-result-group" },
+  delete_roll_result_groups: { method: "DELETE", path: "roll-result-groups" },
+  create_ad_hoc_feat: { method: "POST", path: "feat/ad-hoc" },
+  delete_ad_hoc_feat: { method: "DELETE", path: "feat/ad-hoc" },
+  add_feat_from_entity: { method: "POST", path: "feat/from-entity" },
+  get_infusion_items: { method: "GET", path: "infusion/items" },
+  add_infusion_item: { method: "POST", path: "infusion/item" },
+  delete_infusion_item: { method: "DELETE", path: "infusion/item" },
+  get_known_infusions: { method: "GET", path: "known-infusions" },
+  create_known_infusion: { method: "POST", path: "known-infusion" },
+  update_known_infusion: { method: "PUT", path: "known-infusion" },
+  delete_known_infusion: { method: "DELETE", path: "known-infusion" },
+  add_optional_class_feature: { method: "POST", path: "optional-feature/class-feature" },
+  update_optional_class_feature: { method: "PUT", path: "optional-feature/class-feature" },
+  delete_optional_class_feature: { method: "DELETE", path: "optional-feature/class-feature" },
+  delete_optional_class_features: { method: "DELETE", path: "optional-feature/class-feature/collection" },
+  add_optional_racial_trait: { method: "POST", path: "optional-feature/racial-trait" },
+  update_optional_racial_trait: { method: "PUT", path: "optional-feature/racial-trait" },
+  delete_optional_racial_trait: { method: "DELETE", path: "optional-feature/racial-trait" },
+  delete_optional_racial_traits: { method: "DELETE", path: "optional-feature/racial-trait/collection" },
+  generate_pdf: { method: "POST", path: "pdf" },
+  get_premade: { method: "GET", path: "premade/{characterId}" },
+  create_premade: { method: "POST", path: "premade" },
+  update_premade: { method: "PUT", path: "premade" },
+  delete_premade: { method: "DELETE", path: "premade" },
+  get_rule_data: { method: "GET", path: "rule-data" },
+  get_share_url: { method: "GET", path: "share/url" },
+  get_vehicles: { method: "GET", path: "vehicles" },
+  create_vehicle: { method: "POST", path: "vehicle" },
+  update_vehicle: { method: "PUT", path: "vehicle" },
+  delete_vehicle: { method: "DELETE", path: "vehicle" },
+  set_vehicle_fuel: { method: "PUT", path: "vehicle/fuel" },
+  create_vehicle_condition: { method: "POST", path: "vehicle/condition" },
+  update_vehicle_condition: { method: "PUT", path: "vehicle/condition" },
+  delete_vehicle_condition: { method: "DELETE", path: "vehicle/condition" },
+  get_vehicle_components: { method: "GET", path: "vehicle/components" },
+  create_vehicle_component: { method: "POST", path: "vehicle/component" },
+  update_vehicle_component: { method: "PUT", path: "vehicle/component" },
+  update_vehicle_component_hp: { method: "PUT", path: "vehicle/component/hp" },
+  set_featureflag: { method: "POST", path: "featureflag", note: "account/session scoped; use with care" },
+};
+
+
+
+function interpolateExperimentalPath(path: string, body: Record<string, unknown>): string {
+  return path.replace(/\{([^}]+)\}/g, (_match, key: string) => {
+    const value = body[key];
+    if (value === undefined || value === null || value === "") {
+      throw new Error(`Missing path parameter: ${key}`);
+    }
+    return encodeURIComponent(String(value));
+  });
+}
+
+function appendQuery(url: string, body: Record<string, unknown>): string {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(body)) {
+    if (value === undefined || value === null || key === "body") continue;
+    if (typeof value === "object") continue;
+    params.set(key, String(value));
+  }
+  const query = params.toString();
+  return query ? `${url}${url.includes("?") ? "&" : "?"}${query}` : url;
+}
+
+function safeJsonStringify(value: unknown): string {
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
+export async function listExperimentalDdbEndpoints(): Promise<ToolResult> {
+  const lines = ["# Experimental D&D Beyond character endpoints\n"];
+  for (const [key, endpoint] of Object.entries(EXPERIMENTAL_CHARACTER_ENDPOINTS).sort(([a], [b]) => a.localeCompare(b))) {
+    lines.push(`- ${key}: ${endpoint.method} /character/v5/${endpoint.path}${endpoint.note ? ` — ${endpoint.note}` : ""}`);
+  }
+  return { content: [{ type: "text", text: lines.join("\n") }] };
+}
+
+export async function callExperimentalDdbEndpoint(
+  client: DdbClient,
+  params: { endpoint: string; body?: Record<string, unknown> }
+): Promise<ToolResult> {
+  const endpoint = EXPERIMENTAL_CHARACTER_ENDPOINTS[params.endpoint];
+  if (!endpoint) {
+    return { content: [{ type: "text", text: `Unknown experimental endpoint "${params.endpoint}". Use list_experimental_ddb_endpoints.` }] };
+  }
+
+  const body = params.body ?? {};
+
+  try {
+    const path = interpolateExperimentalPath(endpoint.path, body);
+    let url = `${DDB_CHARACTER_SERVICE}/character/v5/${path}`;
+    let result: unknown;
+
+    if (endpoint.method === "GET") {
+      url = appendQuery(url, body);
+      result = await client.get<unknown>(url, `experimental:${params.endpoint}:${safeJsonStringify(body)}`, 0);
+    } else if (endpoint.method === "POST") {
+      result = await client.post<unknown>(url, body, typeof body.characterId === "number" ? [`character:${body.characterId}`] : undefined);
+    } else if (endpoint.method === "PUT") {
+      result = await client.put<unknown>(url, body, typeof body.characterId === "number" ? [`character:${body.characterId}`] : undefined);
+    } else {
+      result = await client.delete<unknown>(url, body, typeof body.characterId === "number" ? [`character:${body.characterId}`] : undefined);
+    }
+
+    const rendered = typeof result === "string" ? result : safeJsonStringify(result);
+    return { content: [{ type: "text", text: `Called ${endpoint.method} /character/v5/${endpoint.path}\n\n${rendered ?? ""}`.slice(0, 12_000) }] };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { content: [{ type: "text", text: `Failed to call ${endpoint.method} /character/v5/${endpoint.path}: ${message}` }] };
+  }
+}
 
 function formatAbilityScores(char: DdbCharacter): string {
   return ABILITY_NAMES.map((name, idx) => {
@@ -462,10 +615,13 @@ function formatSpellSlots(char: DdbCharacter): string {
   let result = `\n--- Spell Slots ---\n${lines.join("\n")}`;
 
   // Add pact magic if available
-  if (char.pactMagic && char.pactMagic.available > 0) {
-    const filled = "\u25CF".repeat(char.pactMagic.available - char.pactMagic.used);
-    const empty = "\u25CB".repeat(char.pactMagic.used);
-    result += `\nPact Magic (Level ${char.pactMagic.level}): ${filled}${empty} (${char.pactMagic.used}/${char.pactMagic.available} used)`;
+  const pactSlots = Array.isArray(char.pactMagic)
+    ? char.pactMagic.filter((slot) => slot.available > 0)
+    : char.pactMagic && char.pactMagic.available > 0 ? [char.pactMagic] : [];
+  for (const pact of pactSlots) {
+    const filled = "\u25CF".repeat(pact.available - pact.used);
+    const empty = "\u25CB".repeat(pact.used);
+    result += `\nPact Magic (Level ${pact.level}): ${filled}${empty} (${pact.used}/${pact.available} used)`;
   }
 
   return result;
@@ -1286,34 +1442,24 @@ export async function updateSpellSlots(
     };
   }
 
-  try {
-    await client.put(
-      ENDPOINTS.character.updateSpellSlots(params.characterId),
-      { level: params.level, used: params.used },
-      [`character:${params.characterId}`]
-    );
+  await client.put(
+    ENDPOINTS.character.updateSpellSlots(),
+    {
+      characterId: params.characterId,
+      spellslots: { [`level${params.level}`]: params.used },
+      update: true,
+    },
+    [`character:${params.characterId}`]
+  );
 
-    return {
-      content: [
-        {
-          type: "text",
-          text: `Updated level ${params.level} spell slots to ${params.used} used.`,
-        },
-      ],
-    };
-  } catch (error) {
-    if (error instanceof HttpError && error.statusCode === 404) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: `⚠️  Spell slot updates are temporarily unavailable.\n\nD&D Beyond has deprecated the v5 character write API endpoints. This feature cannot be used until D&D Beyond provides replacement endpoints.\n\nCharacter ID: ${params.characterId}\nRead operations still work normally.`,
-          },
-        ],
-      };
-    }
-    throw error;
-  }
+  return {
+    content: [
+      {
+        type: "text",
+        text: `Updated level ${params.level} spell slots to ${params.used} used.`,
+      },
+    ],
+  };
 }
 
 interface UpdateDeathSavesParams {
@@ -1348,39 +1494,30 @@ export async function updateDeathSaves(
     };
   }
 
-  const body =
-    params.type === "success"
-      ? { successCount: params.count }
-      : { failCount: params.count };
+  const character = await client.get<DdbCharacter>(
+    ENDPOINTS.character.get(params.characterId),
+    `character:${params.characterId}`,
+    60_000
+  );
+  const body = {
+    successCount: params.type === "success" ? params.count : (character.deathSaves.successCount ?? 0),
+    failCount: params.type === "failure" ? params.count : (character.deathSaves.failCount ?? 0),
+  };
 
-  try {
-    await client.put(
-      ENDPOINTS.character.updateDeathSaves(params.characterId),
-      body,
-      [`character:${params.characterId}`]
-    );
+  await client.put(
+    ENDPOINTS.character.updateDeathSaves(),
+    { characterId: params.characterId, ...body },
+    [`character:${params.characterId}`]
+  );
 
-    return {
-      content: [
-        {
-          type: "text",
-          text: `Updated death saves: ${params.count} ${params.type}${params.count === 1 ? StringUtils.EMPTY : "es"}.`,
-        },
-      ],
-    };
-  } catch (error) {
-    if (error instanceof HttpError && error.statusCode === 404) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: `⚠️  Death save updates are temporarily unavailable.\n\nD&D Beyond has deprecated the v5 character write API endpoints. This feature cannot be used until D&D Beyond provides replacement endpoints.\n\nCharacter ID: ${params.characterId}\nRead operations still work normally.`,
-          },
-        ],
-      };
-    }
-    throw error;
-  }
+  return {
+    content: [
+      {
+        type: "text",
+        text: `Updated death saves: ${params.count} ${params.type}${params.count === 1 ? StringUtils.EMPTY : "es"}.`,
+      },
+    ],
+  };
 }
 
 interface UpdateCurrencyParams {
@@ -1412,16 +1549,16 @@ export async function updateCurrency(
     };
   }
 
+  const character = await client.get<DdbCharacter>(
+    ENDPOINTS.character.get(params.characterId),
+    `character:${params.characterId}`,
+    60_000
+  );
+
   let finalAmount: number;
   let description: string;
 
   if (params.delta !== undefined) {
-    // Delta mode: fetch current currency and add/subtract
-    const character = await client.get<DdbCharacter>(
-      ENDPOINTS.character.get(params.characterId),
-      `character:${params.characterId}`,
-      60_000
-    );
     const current = character.currencies[params.currency];
     finalAmount = Math.max(0, current + params.delta);
 
@@ -1435,29 +1572,101 @@ export async function updateCurrency(
     description = `Set ${params.currency.toUpperCase()} to ${finalAmount}`;
   }
 
-  try {
-    await client.put(
-      ENDPOINTS.character.updateCurrency(params.characterId),
-      { [params.currency]: finalAmount },
-      [`character:${params.characterId}`]
-    );
+  const nextCurrencies = { ...character.currencies, [params.currency]: finalAmount };
 
-    return {
-      content: [{ type: "text", text: `${description}.` }],
-    };
-  } catch (error) {
-    if (error instanceof HttpError && error.statusCode === 404) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: `⚠️  Currency updates are temporarily unavailable.\n\nD&D Beyond has deprecated the v5 character write API endpoints. This feature cannot be used until D&D Beyond provides replacement endpoints.\n\nCharacter ID: ${params.characterId}\nRead operations still work normally.`,
-          },
-        ],
-      };
-    }
-    throw error;
+  await client.put(
+    ENDPOINTS.character.updateCurrency(),
+    { characterId: params.characterId, ...nextCurrencies },
+    [`character:${params.characterId}`]
+  );
+
+  return {
+    content: [{ type: "text", text: `${description}.` }],
+  };
+}
+
+interface SetProgressionParams { characterId: number; currentXp: number }
+interface SetHpBaseParams { characterId: number; baseHitPoints: number }
+interface SetHpBonusParams { characterId: number; bonusHitPoints: number }
+interface SetHpOverrideParams { characterId: number; overrideHitPoints: number | null }
+interface RestoreHpParams { characterId: number; totalHp: number; restoreType: number }
+interface SetCharacterPreferenceParams { characterId: number; key: string; value: string | number | boolean | null }
+interface SetHelpTextParams { characterId: number; showHelpText: boolean }
+interface SpellKnownParams { characterId: number; classId: number; spellId: number; spellMappingId: number; spellEntityTypeId: number }
+interface SetSpellPreparedParams { characterId: number; classMappingId: number; spellMappingId: number; spellEntityTypeId: number; prepared: boolean }
+
+export async function setProgression(client: DdbClient, params: SetProgressionParams): Promise<ToolResult> {
+  if (!Number.isInteger(params.currentXp) || params.currentXp < 0) {
+    return { content: [{ type: "text", text: "Current XP must be a non-negative integer." }] };
   }
+  await client.put(ENDPOINTS.character.setProgression(), { characterId: params.characterId, currentXp: params.currentXp }, [`character:${params.characterId}`]);
+  return { content: [{ type: "text", text: `Set character ${params.characterId} XP to ${params.currentXp}.` }] };
+}
+
+export async function setHpBase(client: DdbClient, params: SetHpBaseParams): Promise<ToolResult> {
+  if (!Number.isInteger(params.baseHitPoints) || params.baseHitPoints < 1) return { content: [{ type: "text", text: "Base HP must be a positive integer." }] };
+  await client.put(ENDPOINTS.character.hp.setBase(), { characterId: params.characterId, baseHitPoints: params.baseHitPoints }, [`character:${params.characterId}`]);
+  return { content: [{ type: "text", text: `Set base HP to ${params.baseHitPoints}.` }] };
+}
+
+export async function setHpBonus(client: DdbClient, params: SetHpBonusParams): Promise<ToolResult> {
+  await client.put(ENDPOINTS.character.hp.setBonus(), { characterId: params.characterId, bonusHitPoints: params.bonusHitPoints }, [`character:${params.characterId}`]);
+  return { content: [{ type: "text", text: `Set bonus HP to ${params.bonusHitPoints}.` }] };
+}
+
+export async function setHpOverride(client: DdbClient, params: SetHpOverrideParams): Promise<ToolResult> {
+  await client.put(ENDPOINTS.character.hp.setOverride(), { characterId: params.characterId, overrideHitPoints: params.overrideHitPoints }, [`character:${params.characterId}`]);
+  return { content: [{ type: "text", text: `Set override HP to ${params.overrideHitPoints ?? "none"}.` }] };
+}
+
+export async function restoreHp(client: DdbClient, params: RestoreHpParams): Promise<ToolResult> {
+  await client.put(ENDPOINTS.character.hp.restore(), { characterId: params.characterId, totalHp: params.totalHp, restoreType: params.restoreType }, [`character:${params.characterId}`]);
+  return { content: [{ type: "text", text: `Restored HP using restoreType ${params.restoreType}.` }] };
+}
+
+export async function setCharacterPreference(client: DdbClient, params: SetCharacterPreferenceParams): Promise<ToolResult> {
+  if (!params.key.trim()) return { content: [{ type: "text", text: "Preference key cannot be empty." }] };
+  await client.put(ENDPOINTS.character.setPreferences(), { characterId: params.characterId, [params.key]: params.value }, [`character:${params.characterId}`]);
+  return { content: [{ type: "text", text: `Set preference ${params.key} for character ${params.characterId}.` }] };
+}
+
+export async function setHelpText(client: DdbClient, params: SetHelpTextParams): Promise<ToolResult> {
+  await client.put(ENDPOINTS.character.setHelpText(), { characterId: params.characterId, showHelpText: params.showHelpText }, [`character:${params.characterId}`]);
+  return { content: [{ type: "text", text: `${params.showHelpText ? "Enabled" : "Disabled"} help text for character ${params.characterId}.` }] };
+}
+
+export async function addKnownSpell(client: DdbClient, params: SpellKnownParams): Promise<ToolResult> {
+  const result = await client.post<DdbSpell>(ENDPOINTS.character.spell.add(), {
+    characterId: params.characterId,
+    characterClassId: params.classId,
+    spellId: params.spellId,
+    id: params.spellMappingId,
+    entityTypeId: params.spellEntityTypeId,
+  }, [`character:${params.characterId}`]);
+  return { content: [{ type: "text", text: `Added known spell ${result.definition?.name ?? params.spellId} to character ${params.characterId}.` }] };
+}
+
+export async function removeKnownSpell(client: DdbClient, params: SpellKnownParams): Promise<ToolResult> {
+  await client.delete(ENDPOINTS.character.spell.remove(), {
+    characterId: params.characterId,
+    characterClassId: params.classId,
+    spellId: params.spellId,
+    id: params.spellMappingId,
+    entityTypeId: params.spellEntityTypeId,
+  }, [`character:${params.characterId}`]);
+  return { content: [{ type: "text", text: `Removed known spell ${params.spellId} from character ${params.characterId}.` }] };
+}
+
+export async function setSpellPrepared(client: DdbClient, params: SetSpellPreparedParams): Promise<ToolResult> {
+  await client.put(ENDPOINTS.character.spell.setPrepared(), {
+    characterId: params.characterId,
+    characterClassId: params.classMappingId,
+    spellId: params.spellMappingId,
+    id: params.spellMappingId,
+    entityTypeId: params.spellEntityTypeId,
+    prepared: params.prepared,
+  }, [`character:${params.characterId}`]);
+  return { content: [{ type: "text", text: `${params.prepared ? "Prepared" : "Unprepared"} spell mapping ${params.spellMappingId}.` }] };
 }
 
 interface UpdatePactMagicParams {
@@ -1494,34 +1703,39 @@ export async function updatePactMagic(
     };
   }
 
-  try {
-    await client.put(
-      ENDPOINTS.character.updatePactMagic(params.characterId),
-      { used: params.used },
-      [`character:${params.characterId}`]
-    );
-
+  const character = await client.get<DdbCharacter>(
+    ENDPOINTS.character.get(params.characterId),
+    `character:${params.characterId}`,
+    60_000
+  );
+  const pactSlots = Array.isArray(character.pactMagic)
+    ? character.pactMagic.find((slot) => slot.available > 0) ?? character.pactMagic.find((slot) => slot.level > 0)
+    : character.pactMagic;
+  const pactLevel = pactSlots?.level;
+  if (!pactLevel) {
     return {
-      content: [
-        {
-          type: "text",
-          text: `Updated pact magic slots to ${params.used} used.`,
-        },
-      ],
+      content: [{ type: "text", text: `${character.name} does not have pact magic slots.` }],
     };
-  } catch (error) {
-    if (error instanceof HttpError && error.statusCode === 404) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: `⚠️  Pact magic updates are temporarily unavailable.\n\nD&D Beyond has deprecated the v5 character write API endpoints. This feature cannot be used until D&D Beyond provides replacement endpoints.\n\nCharacter ID: ${params.characterId}\nRead operations still work normally.`,
-          },
-        ],
-      };
-    }
-    throw error;
   }
+
+  await client.put(
+    ENDPOINTS.character.updateSpellSlots(),
+    {
+      characterId: params.characterId,
+      spellslots: { [`level${pactLevel}`]: params.used },
+      pact: true,
+    },
+    [`character:${params.characterId}`]
+  );
+
+  return {
+    content: [
+      {
+        type: "text",
+        text: `Updated pact magic slots to ${params.used} used.`,
+      },
+    ],
+  };
 }
 
 export async function longRest(
@@ -1627,25 +1841,32 @@ export async function castSpell(
 
     // Determine if warlock using pact magic
     const isWarlock = character.classes.some(cls => cls.definition.name === "Warlock");
-    const hasPactMagic = character.pactMagic && character.pactMagic.available > 0;
+    const pactSlot = Array.isArray(character.pactMagic)
+      ? character.pactMagic.find((slot) => slot.available > 0 && spellLevel <= slot.level)
+      : character.pactMagic;
+    const hasPactMagic = Boolean(pactSlot && pactSlot.available > 0);
 
-    if (isWarlock && hasPactMagic && spellLevel <= character.pactMagic!.level) {
+    if (isWarlock && hasPactMagic && pactSlot && spellLevel <= pactSlot.level) {
       // Use pact magic slot
-      const newUsed = character.pactMagic!.used + 1;
-      if (newUsed > character.pactMagic!.available) {
+      const newUsed = pactSlot.used + 1;
+      if (newUsed > pactSlot.available) {
         return {
-          content: [{ type: "text", text: `No pact magic slots remaining (${character.pactMagic!.used}/${character.pactMagic!.available} used).` }],
+          content: [{ type: "text", text: `No pact magic slots remaining (${pactSlot.used}/${pactSlot.available} used).` }],
         };
       }
       await client.put(
-        ENDPOINTS.character.updatePactMagic(params.characterId),
-        { used: newUsed },
+        ENDPOINTS.character.updateSpellSlots(),
+        {
+          characterId: params.characterId,
+          spellslots: { [`level${pactSlot.level}`]: newUsed },
+          pact: true,
+        },
         [`character:${params.characterId}`]
       );
       return {
         content: [{
           type: "text",
-          text: `Cast ${spell.definition.name} using pact magic (level ${character.pactMagic!.level}). Pact slots: ${newUsed}/${character.pactMagic!.available} used.`,
+          text: `Cast ${spell.definition.name} using pact magic (level ${pactSlot.level}). Pact slots: ${newUsed}/${pactSlot.available} used.`,
         }],
       };
     }
@@ -1660,8 +1881,12 @@ export async function castSpell(
         };
       }
       await client.put(
-        ENDPOINTS.character.updateSpellSlots(params.characterId),
-        { level: spellLevel, used: newUsed },
+        ENDPOINTS.character.updateSpellSlots(),
+        {
+          characterId: params.characterId,
+          spellslots: { [`level${spellLevel}`]: newUsed },
+          update: true,
+        },
         [`character:${params.characterId}`]
       );
       return {
@@ -1674,8 +1899,12 @@ export async function castSpell(
 
     // No slot data available — just update the slot count
     await client.put(
-      ENDPOINTS.character.updateSpellSlots(params.characterId),
-      { level: spellLevel, used: 1 },
+      ENDPOINTS.character.updateSpellSlots(),
+      {
+        characterId: params.characterId,
+        spellslots: { [`level${spellLevel}`]: 1 },
+        update: true,
+      },
       [`character:${params.characterId}`]
     );
     return {
@@ -1690,7 +1919,7 @@ export async function castSpell(
         content: [
           {
             type: "text",
-            text: `⚠️  Spell casting operations are temporarily unavailable.\n\nD&D Beyond has deprecated the v5 character write API endpoints. This feature cannot be used until D&D Beyond provides replacement endpoints.\n\nCharacter ID: ${params.characterId}\nRead operations still work normally.`,
+            text: `⚠️  Spell casting operations are temporarily unavailable.\n\nD&D Beyond rejected the spell slot update endpoint. Character ID: ${params.characterId}\nRead operations still work normally.`,
           },
         ],
       };
@@ -2077,6 +2306,361 @@ export async function setGold(
     [`character:${params.characterId}`]
   );
   return { content: [{ type: "text", text: `Set gold to ${params.amount} on character ${params.characterId}.` }] };
+}
+
+interface ListInventoryItemsParams {
+  characterId: number;
+  includeCustom?: boolean;
+}
+
+interface AddCatalogItemParams {
+  characterId: number;
+  itemName?: string;
+  entityId?: number;
+  entityTypeId?: number;
+  quantity?: number;
+}
+
+interface InventoryItemMutationParams {
+  characterId: number;
+  inventoryItemId: number;
+}
+
+interface SetInventoryItemQuantityParams extends InventoryItemMutationParams {
+  quantity: number;
+}
+
+interface SetInventoryItemBooleanParams extends InventoryItemMutationParams {
+  value: boolean;
+}
+
+interface SetInventoryItemChargeParams extends InventoryItemMutationParams {
+  charges: number;
+}
+
+interface MoveInventoryItemParams extends InventoryItemMutationParams {
+  containerEntityId: number;
+  containerEntityTypeId: number;
+}
+
+interface CreateCustomItemParams {
+  characterId: number;
+  name: string;
+  description?: string;
+  quantity?: number;
+  weight?: number;
+  cost?: number | null;
+  containerEntityId?: number;
+  containerEntityTypeId?: number;
+}
+
+interface UpdateCustomItemParams {
+  characterId: number;
+  inventoryItemId: number;
+  name?: string;
+  description?: string;
+  quantity?: number;
+  weight?: number;
+  cost?: number | null;
+}
+
+interface DeleteCustomItemParams extends InventoryItemMutationParams {}
+
+const CHARACTER_CONTAINER_ENTITY_TYPE_ID = 1581111423;
+const CUSTOM_ITEM_DEFINITION_ENTITY_TYPE_ID = 988229960;
+
+function isCustomInventoryItem(item: DdbInventoryItem): boolean {
+  return Boolean(
+    item.definition?.isCustomItem ||
+    item.definition?.entityTypeId === CUSTOM_ITEM_DEFINITION_ENTITY_TYPE_ID ||
+    item.definition?.definitionKey?.startsWith(`${CUSTOM_ITEM_DEFINITION_ENTITY_TYPE_ID}:`)
+  );
+}
+
+function getInventoryItemName(item: DdbInventoryItem): string {
+  return item.definition?.name || `Inventory item ${item.id}`;
+}
+
+async function getCharacterForInventory(client: DdbClient, characterId: number): Promise<DdbCharacter> {
+  return client.get<DdbCharacter>(
+    ENDPOINTS.character.get(characterId),
+    `character:${characterId}:inventory`,
+    0
+  );
+}
+
+function findInventoryItem(char: DdbCharacter, inventoryItemId: number): DdbInventoryItem | undefined {
+  return (char.inventory ?? []).find((item) => item.id === inventoryItemId);
+}
+
+function validateNonNegativeNumber(value: number, label: string): string | null {
+  if (!Number.isFinite(value) || value < 0) return `${label} must be a non-negative number.`;
+  return null;
+}
+
+export async function listInventoryItems(
+  client: DdbClient,
+  params: ListInventoryItemsParams
+): Promise<ToolResult> {
+  const character = await getCharacterForInventory(client, params.characterId);
+  const includeCustom = params.includeCustom ?? true;
+  let items = character.inventory ?? [];
+  if (!includeCustom) items = items.filter((item) => !isCustomInventoryItem(item));
+
+  if (items.length === 0) {
+    return { content: [{ type: "text", text: `${character.name} has no inventory items${includeCustom ? StringUtils.EMPTY : " matching the filter"}.` }] };
+  }
+
+  const lines = [`# Inventory for ${character.name} (${items.length} item${items.length === 1 ? StringUtils.EMPTY : "s"})\n`];
+  for (const item of [...items].sort((a, b) => getInventoryItemName(a).localeCompare(getInventoryItemName(b)))) {
+    const custom = isCustomInventoryItem(item) ? " custom" : StringUtils.EMPTY;
+    const equipped = item.equipped ? ", equipped" : StringUtils.EMPTY;
+    const attuned = item.isAttuned ? ", attuned" : StringUtils.EMPTY;
+    const definitionId = item.definition?.id ? `, definition ${item.definition.id}` : StringUtils.EMPTY;
+    lines.push(`- **${getInventoryItemName(item)}** x${item.quantity ?? 1} — inventory ${item.id}${definitionId}${custom}${equipped}${attuned}`);
+  }
+
+  return { content: [{ type: "text", text: lines.join("\n") }] };
+}
+
+export async function addCatalogItem(
+  client: DdbClient,
+  params: AddCatalogItemParams
+): Promise<ToolResult> {
+  const quantity = params.quantity ?? 1;
+  if (!Number.isInteger(quantity) || quantity < 1) {
+    return { content: [{ type: "text", text: "Quantity must be a positive integer." }] };
+  }
+
+  let entityId = params.entityId;
+  let entityTypeId = params.entityTypeId;
+  let itemName = params.itemName;
+
+  if (!entityId || !entityTypeId) {
+    if (!params.itemName?.trim()) {
+      return { content: [{ type: "text", text: "Provide either entityId/entityTypeId or itemName." }] };
+    }
+    const items = await client.get<Array<{ id: number; entityTypeId: number; name: string; type?: string; rarity?: string }>>(
+      ENDPOINTS.gameData.items(),
+      "game-data:items",
+      86_400_000,
+    );
+    const search = params.itemName.trim().toLowerCase();
+    const match = (items ?? []).find((item) => item.name.toLowerCase() === search)
+      ?? (items ?? []).find((item) => item.name.toLowerCase().includes(search));
+    if (!match) {
+      return { content: [{ type: "text", text: `No catalog item found matching "${params.itemName}".` }] };
+    }
+    entityId = match.id;
+    entityTypeId = match.entityTypeId;
+    itemName = match.name;
+  }
+
+  await addInventoryItems(client, {
+    characterId: params.characterId,
+    equipment: [{ entityId, entityTypeId, quantity }],
+  });
+
+  return { content: [{ type: "text", text: `Added ${quantity} × ${itemName ?? `item ${entityId}`} to character ${params.characterId}.` }] };
+}
+
+export async function setInventoryItemQuantity(
+  client: DdbClient,
+  params: SetInventoryItemQuantityParams
+): Promise<ToolResult> {
+  if (!Number.isInteger(params.quantity) || params.quantity < 0) {
+    return { content: [{ type: "text", text: "Quantity must be a non-negative integer." }] };
+  }
+
+  await client.put(
+    ENDPOINTS.character.inventory.setQuantity(),
+    { characterId: params.characterId, id: params.inventoryItemId, quantity: params.quantity },
+    [`character:${params.characterId}`]
+  );
+  return { content: [{ type: "text", text: `Set inventory item ${params.inventoryItemId} quantity to ${params.quantity}.` }] };
+}
+
+export async function setInventoryItemEquipped(
+  client: DdbClient,
+  params: SetInventoryItemBooleanParams
+): Promise<ToolResult> {
+  await client.put(
+    ENDPOINTS.character.inventory.setEquipped(),
+    { characterId: params.characterId, id: params.inventoryItemId, value: params.value },
+    [`character:${params.characterId}`]
+  );
+  return { content: [{ type: "text", text: `${params.value ? "Equipped" : "Unequipped"} inventory item ${params.inventoryItemId}.` }] };
+}
+
+export async function setInventoryItemAttuned(
+  client: DdbClient,
+  params: SetInventoryItemBooleanParams
+): Promise<ToolResult> {
+  await client.put(
+    ENDPOINTS.character.inventory.setAttuned(),
+    { characterId: params.characterId, id: params.inventoryItemId, value: params.value },
+    [`character:${params.characterId}`]
+  );
+  return { content: [{ type: "text", text: `${params.value ? "Attuned" : "Unattuned"} inventory item ${params.inventoryItemId}.` }] };
+}
+
+export async function setInventoryItemCharge(
+  client: DdbClient,
+  params: SetInventoryItemChargeParams
+): Promise<ToolResult> {
+  if (!Number.isInteger(params.charges) || params.charges < 0) {
+    return { content: [{ type: "text", text: "Charges must be a non-negative integer." }] };
+  }
+  await client.put(
+    ENDPOINTS.character.inventory.setCharge(),
+    { characterId: params.characterId, id: params.inventoryItemId, charges: params.charges },
+    [`character:${params.characterId}`]
+  );
+  return { content: [{ type: "text", text: `Set inventory item ${params.inventoryItemId} charges to ${params.charges}.` }] };
+}
+
+export async function moveInventoryItem(
+  client: DdbClient,
+  params: MoveInventoryItemParams
+): Promise<ToolResult> {
+  await client.put(
+    ENDPOINTS.character.inventory.moveItem(),
+    {
+      characterId: params.characterId,
+      id: params.inventoryItemId,
+      containerEntityId: params.containerEntityId,
+      containerEntityTypeId: params.containerEntityTypeId,
+    },
+    [`character:${params.characterId}`]
+  );
+  return { content: [{ type: "text", text: `Moved inventory item ${params.inventoryItemId}.` }] };
+}
+
+export async function removeInventoryItem(
+  client: DdbClient,
+  params: InventoryItemMutationParams
+): Promise<ToolResult> {
+  const character = await getCharacterForInventory(client, params.characterId);
+  const item = findInventoryItem(character, params.inventoryItemId);
+  if (!item) {
+    return { content: [{ type: "text", text: `Inventory item ${params.inventoryItemId} was not found on ${character.name}.` }] };
+  }
+  if (isCustomInventoryItem(item)) {
+    const definitionId = item.definition?.id;
+    if (!definitionId) return { content: [{ type: "text", text: `${getInventoryItemName(item)} is missing a custom definition ID.` }] };
+    await client.delete(
+      ENDPOINTS.character.inventory.customItem(),
+      { characterId: params.characterId, id: definitionId, mappingId: params.inventoryItemId, partyId: null },
+      [`character:${params.characterId}`]
+    );
+    return { content: [{ type: "text", text: `Deleted custom item "${getInventoryItemName(item)}" from ${character.name}.` }] };
+  }
+
+  await client.delete(
+    ENDPOINTS.character.inventory.removeItem(),
+    { characterId: params.characterId, id: params.inventoryItemId },
+    [`character:${params.characterId}`]
+  );
+  return { content: [{ type: "text", text: `Removed ${getInventoryItemName(item)} from ${character.name}.` }] };
+}
+
+export async function createCustomItem(
+  client: DdbClient,
+  params: CreateCustomItemParams
+): Promise<ToolResult> {
+  const name = params.name.trim();
+  if (!name) return { content: [{ type: "text", text: "Custom item name cannot be empty." }] };
+  const quantity = params.quantity ?? 1;
+  if (!Number.isInteger(quantity) || quantity < 1) {
+    return { content: [{ type: "text", text: "Quantity must be a positive integer." }] };
+  }
+  const weightError = validateNonNegativeNumber(params.weight ?? 0, "Weight");
+  if (weightError) return { content: [{ type: "text", text: weightError }] };
+  if (params.cost !== undefined && params.cost !== null) {
+    const costError = validateNonNegativeNumber(params.cost, "Cost");
+    if (costError) return { content: [{ type: "text", text: costError }] };
+  }
+
+  const result = await client.post<{ addItems?: DdbInventoryItem[] }>(
+    ENDPOINTS.character.inventory.customItem(),
+    {
+      characterId: params.characterId,
+      containerEntityId: params.containerEntityId ?? params.characterId,
+      containerEntityTypeId: params.containerEntityTypeId ?? CHARACTER_CONTAINER_ENTITY_TYPE_ID,
+      name,
+      description: params.description ?? StringUtils.EMPTY,
+      quantity,
+      weight: params.weight ?? 0,
+      cost: params.cost ?? null,
+    },
+    [`character:${params.characterId}`]
+  );
+
+  const added = result.addItems?.[0];
+  const detail = added ? ` Inventory item ID: ${added.id}; definition ID: ${added.definition?.id ?? "unknown"}.` : StringUtils.EMPTY;
+  return { content: [{ type: "text", text: `Created custom item "${name}" on character ${params.characterId}.${detail}` }] };
+}
+
+export async function updateCustomItem(
+  client: DdbClient,
+  params: UpdateCustomItemParams
+): Promise<ToolResult> {
+  const character = await getCharacterForInventory(client, params.characterId);
+  const item = findInventoryItem(character, params.inventoryItemId);
+  if (!item) return { content: [{ type: "text", text: `Inventory item ${params.inventoryItemId} was not found on ${character.name}.` }] };
+  if (!isCustomInventoryItem(item)) return { content: [{ type: "text", text: `${getInventoryItemName(item)} is not a custom item.` }] };
+  const definitionId = item.definition?.id;
+  if (!definitionId) return { content: [{ type: "text", text: `${getInventoryItemName(item)} is missing a custom definition ID.` }] };
+
+  const quantity = params.quantity ?? item.quantity ?? 1;
+  if (!Number.isInteger(quantity) || quantity < 1) {
+    return { content: [{ type: "text", text: "Quantity must be a positive integer." }] };
+  }
+  const weight = params.weight ?? item.definition?.weight ?? 0;
+  const weightError = validateNonNegativeNumber(weight, "Weight");
+  if (weightError) return { content: [{ type: "text", text: weightError }] };
+  const cost = params.cost !== undefined ? params.cost : item.definition?.cost ?? null;
+  if (cost !== null) {
+    const costError = validateNonNegativeNumber(cost, "Cost");
+    if (costError) return { content: [{ type: "text", text: costError }] };
+  }
+  const name = params.name?.trim() || getInventoryItemName(item);
+
+  await client.put(
+    ENDPOINTS.character.inventory.customItem(),
+    {
+      characterId: params.characterId,
+      id: definitionId,
+      mappingId: params.inventoryItemId,
+      name,
+      description: params.description ?? item.definition?.description ?? StringUtils.EMPTY,
+      quantity,
+      weight,
+      cost,
+    },
+    [`character:${params.characterId}`]
+  );
+
+  return { content: [{ type: "text", text: `Updated custom item "${name}" on ${character.name}.` }] };
+}
+
+export async function deleteCustomItem(
+  client: DdbClient,
+  params: DeleteCustomItemParams
+): Promise<ToolResult> {
+  const character = await getCharacterForInventory(client, params.characterId);
+  const item = findInventoryItem(character, params.inventoryItemId);
+  if (!item) return { content: [{ type: "text", text: `Inventory item ${params.inventoryItemId} was not found on ${character.name}.` }] };
+  if (!isCustomInventoryItem(item)) return { content: [{ type: "text", text: `${getInventoryItemName(item)} is not a custom item.` }] };
+  const definitionId = item.definition?.id;
+  if (!definitionId) return { content: [{ type: "text", text: `${getInventoryItemName(item)} is missing a custom definition ID.` }] };
+
+  await client.delete(
+    ENDPOINTS.character.inventory.customItem(),
+    { characterId: params.characterId, id: definitionId, mappingId: params.inventoryItemId, partyId: null },
+    [`character:${params.characterId}`]
+  );
+  return { content: [{ type: "text", text: `Deleted custom item "${getInventoryItemName(item)}" from ${character.name}.` }] };
 }
 
 // ============================================================================
