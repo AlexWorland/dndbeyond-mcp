@@ -70,7 +70,15 @@ After adding the configuration, restart Claude Desktop.
 - `set_hp_base` / `set_hp_bonus` / `set_hp_override` / `restore_hp` — Manage HP internals
 - `set_character_preference` / `set_help_text` — Update sheet preferences/help text
 - `add_known_spell` / `remove_known_spell` / `set_spell_prepared` — Manage known/prepared class spells
-- `list_experimental_ddb_endpoints` / `call_experimental_ddb_endpoint` — Allowlisted long-tail character-service endpoints from D&D Beyond's web app for payload-specific operations not yet modeled as typed tools
+- `set_character_source_categories` / `set_character_campaign_setting` — Manage DDB source/category content settings
+- `set_custom_background` / `set_has_custom_background` — Manage custom background data and activation
+- `set_custom_value` / `delete_custom_value` / `delete_custom_entity_values` — Manage DDB custom/entity-scoped values
+- `manage_custom_proficiency` / `manage_custom_movement` / `manage_custom_sense` / `manage_custom_defense_adjustment` / `manage_custom_action` — Create/update/delete DDB custom sheet entities
+- `manage_character_feat` / `manage_character_infusion` / `manage_optional_feature` — Manage feat, infusion, and optional-feature endpoint families
+- `manage_roll_result` — Manage DDB roll result groups/results
+- `manage_vehicle` — Manage DDB vehicle mappings, fuel, conditions, and component data; vehicle/component IDs are DDB string IDs like `sjliv`/`sjliv06c`
+- `set_character_decoration` / `get_character_rule_data` / `get_character_share_url` / `generate_character_pdf` / `manage_premade_info` / `set_character_feature_flag` — Additional typed character-service endpoints reverse-engineered from the DDB web app; PDF generation requires DDB `exportData`, and feature flags require a `flags` array
+- `list_experimental_ddb_endpoints` / `call_experimental_ddb_endpoint` — Allowlisted fallback for DDB character-service endpoints whose payloads still vary by feature/account state
 - `list_inventory_items` — List inventory and IDs used by inventory write tools
 - `add_catalog_item` — Add an official/catalog item by name or entity ID
 - `set_inventory_item_quantity` — Change item quantity
