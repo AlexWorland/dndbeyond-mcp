@@ -1271,6 +1271,280 @@ class StringUtils {
   static readonly EMPTY = "";
 }
 
+type CharacterServiceOperation = "get" | "post" | "put" | "delete";
+type CharacterPayload = Record<string, unknown>;
+
+function characterServiceUrl(path: string): string {
+  return `${DDB_CHARACTER_SERVICE}/character/v5/${path}`;
+}
+
+function invalidateFor(payload: CharacterPayload): string[] | undefined {
+  return typeof payload.characterId === "number" ? [`character:${payload.characterId}`] : undefined;
+}
+
+function flattenPayload(payload: CharacterPayload): CharacterPayload {
+  const nested = payload.payload;
+  if (!nested || typeof nested !== "object" || Array.isArray(nested)) return payload;
+  const { payload: _payload, ...rest } = payload;
+  return { ...(nested as CharacterPayload), ...rest };
+}
+
+async function characterServiceRequest(
+  client: DdbClient,
+  method: CharacterServiceOperation,
+  path: string,
+  payload: CharacterPayload,
+  cacheKeyPrefix: string
+): Promise<unknown> {
+  payload = flattenPayload(payload);
+  const url = characterServiceUrl(path);
+  if (method === "get") {
+    return client.get<unknown>(appendQuery(url, payload), `${cacheKeyPrefix}:${safeJsonStringify(payload)}`, 0);
+  }
+  if (method === "post") return client.post<unknown>(url, payload, invalidateFor(payload));
+  if (method === "put") return client.put<unknown>(url, payload, invalidateFor(payload));
+  return client.delete<unknown>(url, payload, invalidateFor(payload));
+}
+
+function requiredPayload(params: CharacterPayload, keys: string[]): string | null {
+  const missing = keys.filter((key) => params[key] === undefined || params[key] === null || params[key] === "");
+  return missing.length ? `Missing required field${missing.length === 1 ? "" : "s"}: ${missing.join(", ")}.` : null;
+}
+
+function renderMutationResult(verb: string, subject: string, payload: CharacterPayload, result?: unknown): ToolResult {
+  const character = typeof payload.characterId === "number" ? ` for character ${payload.characterId}` : "";
+  let suffix = StringUtils.EMPTY;
+  if (result !== undefined && result !== null && result !== "") {
+    const rendered = typeof result === "string" ? result : JSON.stringify(result, null, 2);
+    suffix = `\n\n${rendered.slice(0, 6_000)}`;
+  }
+  return { content: [{ type: "text", text: `${verb} ${subject}${character}.${suffix}` }] };
+}
+
+export async function setCharacterSourceCategories(client: DdbClient, params: { characterId: number; activeSourceCategories: number[] }): Promise<ToolResult> {
+  const missing = requiredPayload(params as unknown as CharacterPayload, ["characterId", "activeSourceCategories"]);
+  if (missing) return { content: [{ type: "text", text: missing }] };
+  await characterServiceRequest(client, "put", "character/source-categories", params as unknown as CharacterPayload, "character-source-categories");
+  return renderMutationResult("Updated", "source categories", params as unknown as CharacterPayload);
+}
+
+export async function setCharacterCampaignSetting(client: DdbClient, params: { characterId: number; campaignSettingId?: number | null; enabledSourceIds?: number[]; [key: string]: unknown }): Promise<ToolResult> {
+  const missing = requiredPayload(params, ["characterId"]);
+  if (missing) return { content: [{ type: "text", text: missing }] };
+  await characterServiceRequest(client, "put", "campaign-setting", params, "character-campaign-setting");
+  return renderMutationResult("Updated", "campaign setting", params);
+}
+
+export async function setCustomBackground(client: DdbClient, params: { characterId: number; name?: string | null; description?: string | null; featuresBackgroundDefinitionId?: number | null; characteristicsBackgroundDefinitionId?: number | null; backgroundType?: number | null; [key: string]: unknown }): Promise<ToolResult> {
+  const missing = requiredPayload(params, ["characterId"]);
+  if (missing) return { content: [{ type: "text", text: missing }] };
+  await characterServiceRequest(client, "put", "custom/background", params, "custom-background");
+  return renderMutationResult("Updated", "custom background", params);
+}
+
+export async function setHasCustomBackground(client: DdbClient, params: { characterId: number; hasCustomBackground: boolean }): Promise<ToolResult> {
+  const missing = requiredPayload(params as unknown as CharacterPayload, ["characterId", "hasCustomBackground"]);
+  if (missing) return { content: [{ type: "text", text: missing }] };
+  await characterServiceRequest(client, "put", "configuration/has-custom-background", params as unknown as CharacterPayload, "has-custom-background");
+  return renderMutationResult("Updated", "custom-background flag", params as unknown as CharacterPayload);
+}
+
+export async function setCustomValue(client: DdbClient, params: { characterId: number; typeId: number; value: unknown; notes?: string | null; valueId?: number | string | null; valueTypeId?: number | string | null; contextId?: number | string | null; contextTypeId?: number | string | null; partyId?: number | null }): Promise<ToolResult> {
+  const missing = requiredPayload(params as CharacterPayload, ["characterId", "typeId", "value"]);
+  if (missing) return { content: [{ type: "text", text: missing }] };
+  await characterServiceRequest(client, "put", "custom/value", params as CharacterPayload, "custom-value");
+  return renderMutationResult("Updated", "custom value", params as CharacterPayload);
+}
+
+export async function deleteCustomValue(client: DdbClient, params: { characterId: number; typeId: number; valueId?: number | string | null; valueTypeId?: number | string | null; contextId?: number | string | null; contextTypeId?: number | string | null; partyId?: number | null }): Promise<ToolResult> {
+  const missing = requiredPayload(params as CharacterPayload, ["characterId", "typeId"]);
+  if (missing) return { content: [{ type: "text", text: missing }] };
+  await characterServiceRequest(client, "delete", "custom/value", params as CharacterPayload, "delete-custom-value");
+  return renderMutationResult("Deleted", "custom value", params as CharacterPayload);
+}
+
+export async function deleteCustomEntityValues(client: DdbClient, params: { characterId: number; valueId?: number | string | null; valueTypeId?: number | string | null; contextId?: number | string | null; contextTypeId?: number | string | null; partyId?: number | null }): Promise<ToolResult> {
+  const missing = requiredPayload(params as CharacterPayload, ["characterId"]);
+  if (missing) return { content: [{ type: "text", text: missing }] };
+  await characterServiceRequest(client, "delete", "custom/entity/values", params as CharacterPayload, "delete-custom-entity-values");
+  return renderMutationResult("Deleted", "custom entity values", params as CharacterPayload);
+}
+
+export async function manageCustomProficiency(client: DdbClient, params: { operation: "create" | "update" | "delete"; characterId: number; id?: number; name?: string; type?: number; [key: string]: unknown }): Promise<ToolResult> {
+  const method = params.operation === "create" ? "post" : params.operation === "update" ? "put" : "delete";
+  const missing = requiredPayload(params, params.operation === "create" ? ["characterId", "name", "type"] : ["characterId", "id"]);
+  if (missing) return { content: [{ type: "text", text: missing }] };
+  const { operation: _operation, ...payload } = params;
+  const result = await characterServiceRequest(client, method, "custom/proficiency", payload, "custom-proficiency");
+  return renderMutationResult(params.operation === "delete" ? "Deleted" : params.operation === "create" ? "Created" : "Updated", "custom proficiency", payload, result);
+}
+
+export async function manageCustomMovement(client: DdbClient, params: { operation: "create" | "update" | "delete"; characterId: number; movementId: number; distance?: number | null; source?: string | null }): Promise<ToolResult> {
+  const method = params.operation === "create" ? "post" : params.operation === "update" ? "put" : "delete";
+  const missing = requiredPayload(params as CharacterPayload, params.operation === "delete" ? ["characterId", "movementId"] : ["characterId", "movementId", "distance"]);
+  if (missing) return { content: [{ type: "text", text: missing }] };
+  const { operation: _operation, ...payload } = params;
+  const result = await characterServiceRequest(client, method, "custom/movement", payload as CharacterPayload, "custom-movement");
+  return renderMutationResult(params.operation === "delete" ? "Deleted" : params.operation === "create" ? "Created" : "Updated", "custom movement", payload as CharacterPayload, result);
+}
+
+export async function manageCustomSense(client: DdbClient, params: { operation: "create" | "update" | "delete"; characterId: number; senseId: number; distance?: number | null; source?: string | null }): Promise<ToolResult> {
+  const method = params.operation === "create" ? "post" : params.operation === "update" ? "put" : "delete";
+  const missing = requiredPayload(params as CharacterPayload, params.operation === "delete" ? ["characterId", "senseId"] : ["characterId", "senseId", "distance"]);
+  if (missing) return { content: [{ type: "text", text: missing }] };
+  const { operation: _operation, ...payload } = params;
+  const result = await characterServiceRequest(client, method, "custom/sense", payload as CharacterPayload, "custom-sense");
+  return renderMutationResult(params.operation === "delete" ? "Deleted" : params.operation === "create" ? "Created" : "Updated", "custom sense", payload as CharacterPayload, result);
+}
+
+export async function manageCustomDefenseAdjustment(client: DdbClient, params: { operation: "create" | "update" | "delete"; characterId: number; type: number; adjustmentId: number; source?: string | null; [key: string]: unknown }): Promise<ToolResult> {
+  const method = params.operation === "create" ? "post" : params.operation === "update" ? "put" : "delete";
+  const missing = requiredPayload(params, ["characterId", "type", "adjustmentId"]);
+  if (missing) return { content: [{ type: "text", text: missing }] };
+  const { operation: _operation, ...payload } = params;
+  const result = await characterServiceRequest(client, method, "custom/defense-adjustment", payload, "custom-defense-adjustment");
+  return renderMutationResult(params.operation === "delete" ? "Deleted" : params.operation === "create" ? "Created" : "Updated", "custom defense adjustment", payload, result);
+}
+
+export async function manageCustomAction(client: DdbClient, params: { operation: "create" | "update" | "delete"; characterId: number; id?: number | string; name?: string; actionType?: number; [key: string]: unknown }): Promise<ToolResult> {
+  const method = params.operation === "create" ? "post" : params.operation === "update" ? "put" : "delete";
+  const missing = requiredPayload(params, params.operation === "create" ? ["characterId", "name", "actionType"] : ["characterId", "id"]);
+  if (missing) return { content: [{ type: "text", text: missing }] };
+  const { operation: _operation, ...payload } = params;
+  const result = await characterServiceRequest(client, method, "custom/action", payload, "custom-action");
+  return renderMutationResult(params.operation === "delete" ? "Deleted" : params.operation === "create" ? "Created" : "Updated", "custom action", payload, result);
+}
+
+export async function setCharacterDecoration(client: DdbClient, params: { characterId: number; kind: "backdrop" | "frame" | "portrait" | "customPortrait" | "themeColor" | "socialImage"; [key: string]: unknown }): Promise<ToolResult> {
+  const pathByKind = { backdrop: "decoration/backdrop", frame: "decoration/frame", portrait: "decoration/portrait", customPortrait: "decoration/portrait/custom", themeColor: "decoration/theme-color", socialImage: "decoration/social-image" } as const;
+  const method: CharacterServiceOperation = params.kind === "customPortrait" ? "post" : "put";
+  const missing = requiredPayload(params, ["characterId", "kind"]);
+  if (missing) return { content: [{ type: "text", text: missing }] };
+  const { kind, ...payload } = params;
+  const result = await characterServiceRequest(client, method, pathByKind[kind], payload, `decoration-${kind}`);
+  return renderMutationResult("Updated", `${kind} decoration`, payload, result);
+}
+
+export async function manageRollResult(client: DdbClient, params: { operation: "listGroups" | "createGroup" | "updateGroup" | "updateGroupOrder" | "deleteGroup" | "deleteGroups" | "updateResult"; characterId: number; [key: string]: unknown }): Promise<ToolResult> {
+  const table = {
+    listGroups: ["get", "roll-result-groups", "Listed"],
+    createGroup: ["post", "roll-result-group", "Created"],
+    updateGroup: ["put", "roll-result-group", "Updated"],
+    updateGroupOrder: ["put", "roll-result-group/order", "Updated"],
+    deleteGroup: ["delete", "roll-result-group", "Deleted"],
+    deleteGroups: ["delete", "roll-result-groups", "Deleted"],
+    updateResult: ["put", "roll-result", "Updated"],
+  } as const;
+  const missing = requiredPayload(params, ["characterId", "operation"]);
+  if (missing) return { content: [{ type: "text", text: missing }] };
+  const [method, path, verb] = table[params.operation];
+  const { operation: _operation, ...payload } = params;
+  const result = await characterServiceRequest(client, method, path, payload, `roll-${params.operation}`);
+  return renderMutationResult(verb, "roll-result data", payload, result);
+}
+
+export async function manageCharacterFeat(client: DdbClient, params: { operation: "createAdHoc" | "deleteAdHoc" | "addFromEntity"; characterId: number; [key: string]: unknown }): Promise<ToolResult> {
+  const table = { createAdHoc: ["post", "feat/ad-hoc", "Created"], deleteAdHoc: ["delete", "feat/ad-hoc", "Deleted"], addFromEntity: ["post", "feat/from-entity", "Added"] } as const;
+  const missing = requiredPayload(params, ["characterId", "operation"]);
+  if (missing) return { content: [{ type: "text", text: missing }] };
+  const [method, path, verb] = table[params.operation];
+  const { operation: _operation, ...payload } = params;
+  const result = await characterServiceRequest(client, method, path, payload, `feat-${params.operation}`);
+  return renderMutationResult(verb, "feat data", payload, result);
+}
+
+export async function manageCharacterInfusion(client: DdbClient, params: { operation: "listItems" | "addItem" | "deleteItem" | "listKnown" | "createKnown" | "updateKnown" | "deleteKnown"; characterId: number; [key: string]: unknown }): Promise<ToolResult> {
+  const table = {
+    listItems: ["get", "infusion/items", "Listed"], addItem: ["post", "infusion/item", "Added"], deleteItem: ["delete", "infusion/item", "Deleted"],
+    listKnown: ["get", "known-infusions", "Listed"], createKnown: ["post", "known-infusion", "Created"], updateKnown: ["put", "known-infusion", "Updated"], deleteKnown: ["delete", "known-infusion", "Deleted"],
+  } as const;
+  const missing = requiredPayload(params, ["characterId", "operation"]);
+  if (missing) return { content: [{ type: "text", text: missing }] };
+  const [method, path, verb] = table[params.operation];
+  const { operation: _operation, ...payload } = params;
+  const result = await characterServiceRequest(client, method, path, payload, `infusion-${params.operation}`);
+  return renderMutationResult(verb, "infusion data", payload, result);
+}
+
+export async function manageOptionalFeature(client: DdbClient, params: { operation: "addClassFeature" | "updateClassFeature" | "deleteClassFeature" | "deleteClassFeatureCollection" | "addRacialTrait" | "updateRacialTrait" | "deleteRacialTrait" | "deleteRacialTraitCollection"; characterId: number; [key: string]: unknown }): Promise<ToolResult> {
+  const table = {
+    addClassFeature: ["post", "optional-feature/class-feature", "Added"], updateClassFeature: ["put", "optional-feature/class-feature", "Updated"], deleteClassFeature: ["delete", "optional-feature/class-feature", "Deleted"], deleteClassFeatureCollection: ["delete", "optional-feature/class-feature/collection", "Deleted"],
+    addRacialTrait: ["post", "optional-feature/racial-trait", "Added"], updateRacialTrait: ["put", "optional-feature/racial-trait", "Updated"], deleteRacialTrait: ["delete", "optional-feature/racial-trait", "Deleted"], deleteRacialTraitCollection: ["delete", "optional-feature/racial-trait/collection", "Deleted"],
+  } as const;
+  const missing = requiredPayload(params, ["characterId", "operation"]);
+  if (missing) return { content: [{ type: "text", text: missing }] };
+  const [method, path, verb] = table[params.operation];
+  const { operation: _operation, ...payload } = params;
+  const result = await characterServiceRequest(client, method, path, payload, `optional-feature-${params.operation}`);
+  return renderMutationResult(verb, "optional feature", payload, result);
+}
+
+export async function managePremadeInfo(client: DdbClient, params: { operation: "get" | "create" | "update" | "delete"; characterId: number; [key: string]: unknown }): Promise<ToolResult> {
+  const table = { get: ["get", "premade/{characterId}", "Loaded"], create: ["post", "premade", "Created"], update: ["put", "premade", "Updated"], delete: ["delete", "premade", "Deleted"] } as const;
+  const missing = requiredPayload(params, ["characterId", "operation"]);
+  if (missing) return { content: [{ type: "text", text: missing }] };
+  const [method, rawPath, verb] = table[params.operation];
+  const { operation: _operation, ...payload } = params;
+  const path = interpolateExperimentalPath(rawPath, payload);
+  const result = await characterServiceRequest(client, method, path, payload, `premade-${params.operation}`);
+  return renderMutationResult(verb, "premade info", payload, result);
+}
+
+export async function manageVehicle(client: DdbClient, params: { operation: "list" | "create" | "update" | "delete" | "setFuel" | "createCondition" | "updateCondition" | "deleteCondition" | "listComponents" | "createComponent" | "updateComponent" | "updateComponentHp"; characterId?: number; vehicleMappingId?: number | string; id?: number | string; vehicleId?: number | string; componentId?: number | string; componentIds?: Array<number | string>; conditionId?: number; removedHitPoints?: number; [key: string]: unknown }): Promise<ToolResult> {
+  const table = {
+    list: ["get", "vehicles", "Listed", ["characterId"]],
+    create: ["post", "vehicle", "Created", ["characterId", "vehicleId"]],
+    update: ["put", "vehicle", "Updated", ["characterId", "id"]],
+    delete: ["delete", "vehicle", "Deleted", ["characterId", "id"]],
+    setFuel: ["put", "vehicle/fuel", "Updated", ["characterId", "id"]],
+    createCondition: ["post", "vehicle/condition", "Created", ["characterId", "vehicleMappingId", "conditionId"]],
+    updateCondition: ["put", "vehicle/condition", "Updated", ["characterId", "vehicleMappingId", "conditionId"]],
+    deleteCondition: ["delete", "vehicle/condition", "Deleted", ["characterId", "vehicleMappingId", "conditionId"]],
+    listComponents: ["get", "vehicle/components", "Listed", ["characterId", "vehicleMappingId"]],
+    createComponent: ["post", "vehicle/component", "Created", ["characterId", "vehicleMappingId", "componentIds"]],
+    updateComponent: ["put", "vehicle/component", "Updated", ["characterId", "id", "vehicleMappingId", "componentId"]],
+    updateComponentHp: ["put", "vehicle/component/hp", "Updated", ["characterId", "id", "removedHitPoints"]],
+  } as const;
+  const [method, path, verb, requiredFields] = table[params.operation];
+  const missing = requiredPayload(params, ["operation", ...requiredFields]);
+  if (missing) return { content: [{ type: "text", text: missing }] };
+  const { operation: _operation, ...payload } = params;
+  const result = await characterServiceRequest(client, method, path, payload, `vehicle-${params.operation}`);
+  return renderMutationResult(verb, "vehicle data", payload, result);
+}
+
+export async function getPartyInventory(client: DdbClient, params: { campaignId: number }): Promise<ToolResult> {
+  const missing = requiredPayload(params as unknown as CharacterPayload, ["campaignId"]);
+  if (missing) return { content: [{ type: "text", text: missing }] };
+  const url = `${DDB_CHARACTER_SERVICE}/character/v5/party/inventory/${encodeURIComponent(String(params.campaignId))}`;
+  const result = await client.get<unknown>(url, `party-inventory:${params.campaignId}:${Date.now()}`, 0);
+  return renderMutationResult("Loaded", "party inventory", params as unknown as CharacterPayload, result);
+}
+
+export async function getCharacterRuleData(client: DdbClient, params: { characterId: number }): Promise<ToolResult> {
+  const result = await characterServiceRequest(client, "get", "rule-data", params as unknown as CharacterPayload, "rule-data");
+  return renderMutationResult("Loaded", "rule data", params as unknown as CharacterPayload, result);
+}
+
+export async function getCharacterShareUrl(client: DdbClient, params: { characterId: number }): Promise<ToolResult> {
+  const result = await characterServiceRequest(client, "get", "share/url", params as unknown as CharacterPayload, "share-url");
+  return renderMutationResult("Loaded", "share URL", params as unknown as CharacterPayload, result);
+}
+
+export async function generateCharacterPdf(client: DdbClient, params: { characterId: number; exportData: string; [key: string]: unknown }): Promise<ToolResult> {
+  const missing = requiredPayload(params, ["characterId", "exportData"]);
+  if (missing) return { content: [{ type: "text", text: missing }] };
+  const result = await characterServiceRequest(client, "post", "pdf", params, "pdf");
+  return renderMutationResult("Generated", "PDF", params, result);
+}
+
+export async function setCharacterFeatureFlag(client: DdbClient, params: { flags?: string[]; [key: string]: unknown }): Promise<ToolResult> {
+  const missing = requiredPayload(params, ["flags"]);
+  if (missing) return { content: [{ type: "text", text: missing }] };
+  const result = await characterServiceRequest(client, "post", "featureflag", params, "featureflag");
+  return renderMutationResult("Loaded", "feature flags", params, result);
+}
+
 // ============================================================================
 // WRITE OPERATIONS
 // ============================================================================

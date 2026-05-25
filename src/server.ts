@@ -14,6 +14,30 @@ import {
   listCharacters,
   callExperimentalDdbEndpoint,
   listExperimentalDdbEndpoints,
+  setCharacterSourceCategories,
+  setCharacterCampaignSetting,
+  setCustomBackground,
+  setHasCustomBackground,
+  setCustomValue,
+  deleteCustomValue,
+  deleteCustomEntityValues,
+  manageCustomProficiency,
+  manageCustomMovement,
+  manageCustomSense,
+  manageCustomDefenseAdjustment,
+  manageCustomAction,
+  setCharacterDecoration,
+  manageRollResult,
+  manageCharacterFeat,
+  manageCharacterInfusion,
+  manageOptionalFeature,
+  managePremadeInfo,
+  manageVehicle,
+  getPartyInventory,
+  getCharacterRuleData,
+  getCharacterShareUrl,
+  generateCharacterPdf,
+  setCharacterFeatureFlag,
   addKnownSpell,
   removeKnownSpell,
   restoreHp,
@@ -425,6 +449,291 @@ export async function startServer(): Promise<void> {
         endpoint: params.endpoint,
         body: params.body as Record<string, unknown> | undefined,
       })
+  );
+
+
+  server.tool(
+    "set_character_source_categories",
+    "Set active D&D Beyond source categories. Payload shape is reverse-engineered from the web app; common IDs include 26=core rules and 1=expanded rules.",
+    {
+      characterId: z.coerce.number().describe("The character ID"),
+      activeSourceCategories: z.array(z.coerce.number()).describe("Source category IDs to enable"),
+    },
+    async (params) => setCharacterSourceCategories(client, params)
+  );
+
+  server.tool(
+    "set_character_campaign_setting",
+    "Set character campaign content-source settings using DDB's campaign-setting payload.",
+    z.object({
+      characterId: z.coerce.number().describe("The character ID"),
+      campaignSettingId: z.coerce.number().nullable().optional(),
+      enabledSourceIds: z.array(z.coerce.number()).optional(),
+      payload: z.record(z.string(), z.unknown()).optional().describe("Additional endpoint payload fields merged before top-level fields."),
+    }).catchall(z.unknown()).shape,
+    async (params) => setCharacterCampaignSetting(client, params)
+  );
+
+  server.tool(
+    "set_custom_background",
+    "Create/update the character custom background fields. Use set_has_custom_background to toggle whether it is active.",
+    z.object({
+      characterId: z.coerce.number(),
+      name: z.string().nullable().optional(),
+      description: z.string().nullable().optional(),
+      featuresBackgroundDefinitionId: z.coerce.number().nullable().optional(),
+      characteristicsBackgroundDefinitionId: z.coerce.number().nullable().optional(),
+      backgroundType: z.coerce.number().nullable().optional(),
+      payload: z.record(z.string(), z.unknown()).optional().describe("Additional endpoint payload fields merged before top-level fields."),
+    }).catchall(z.unknown()).shape,
+    async (params) => setCustomBackground(client, params)
+  );
+
+  server.tool(
+    "set_has_custom_background",
+    "Toggle whether the character uses its custom background.",
+    {
+      characterId: z.coerce.number(),
+      hasCustomBackground: z.boolean(),
+    },
+    async (params) => setHasCustomBackground(client, params)
+  );
+
+  server.tool(
+    "set_custom_value",
+    "Set a DDB custom value. Entity-scoped values may include valueId/valueTypeId/contextId/contextTypeId/partyId.",
+    z.object({
+      characterId: z.coerce.number(),
+      typeId: z.coerce.number(),
+      value: z.unknown(),
+      notes: z.string().nullable().optional(),
+      valueId: z.union([z.coerce.number(), z.string()]).nullable().optional(),
+      valueTypeId: z.union([z.coerce.number(), z.string()]).nullable().optional(),
+      contextId: z.union([z.coerce.number(), z.string()]).nullable().optional(),
+      contextTypeId: z.union([z.coerce.number(), z.string()]).nullable().optional(),
+      partyId: z.coerce.number().nullable().optional(),
+    }).shape,
+    async (params) => setCustomValue(client, params)
+  );
+
+  server.tool(
+    "delete_custom_value",
+    "Delete a DDB custom value by typeId plus optional entity scope fields.",
+    z.object({
+      characterId: z.coerce.number(),
+      typeId: z.coerce.number(),
+      valueId: z.union([z.coerce.number(), z.string()]).nullable().optional(),
+      valueTypeId: z.union([z.coerce.number(), z.string()]).nullable().optional(),
+      contextId: z.union([z.coerce.number(), z.string()]).nullable().optional(),
+      contextTypeId: z.union([z.coerce.number(), z.string()]).nullable().optional(),
+      partyId: z.coerce.number().nullable().optional(),
+    }).shape,
+    async (params) => deleteCustomValue(client, params)
+  );
+
+  server.tool(
+    "delete_custom_entity_values",
+    "Delete all custom values associated with a DDB entity scope.",
+    z.object({
+      characterId: z.coerce.number(),
+      valueId: z.union([z.coerce.number(), z.string()]).nullable().optional(),
+      valueTypeId: z.union([z.coerce.number(), z.string()]).nullable().optional(),
+      contextId: z.union([z.coerce.number(), z.string()]).nullable().optional(),
+      contextTypeId: z.union([z.coerce.number(), z.string()]).nullable().optional(),
+      partyId: z.coerce.number().nullable().optional(),
+    }).shape,
+    async (params) => deleteCustomEntityValues(client, params)
+  );
+
+  server.tool(
+    "manage_custom_proficiency",
+    "Create, update, or delete a custom proficiency. Types: 1 skill, 2 tool, 3 language, 4 armor, 5 weapon. Include type on update to avoid DDB resetting it.",
+    z.object({
+      operation: z.enum(["create", "update", "delete"]),
+      characterId: z.coerce.number(),
+      id: z.coerce.number().optional(),
+      name: z.string().optional(),
+      type: z.coerce.number().optional(),
+      notes: z.string().nullable().optional(),
+      payload: z.record(z.string(), z.unknown()).optional().describe("Additional endpoint payload fields merged before top-level fields."),
+    }).catchall(z.unknown()).shape,
+    async (params) => manageCustomProficiency(client, params)
+  );
+
+  server.tool(
+    "manage_custom_movement",
+    "Create/update/delete a custom movement speed. Movement IDs: 1 walk, 2 burrow, 3 climb, 4 fly, 5 swim.",
+    {
+      operation: z.enum(["create", "update", "delete"]),
+      characterId: z.coerce.number(),
+      movementId: z.coerce.number(),
+      distance: z.coerce.number().nullable().optional(),
+      source: z.string().nullable().optional(),
+    },
+    async (params) => manageCustomMovement(client, params)
+  );
+
+  server.tool(
+    "manage_custom_sense",
+    "Create/update/delete a custom sense. Sense IDs: 1 blindsight, 2 darkvision, 3 tremorsense, 4 truesight.",
+    {
+      operation: z.enum(["create", "update", "delete"]),
+      characterId: z.coerce.number(),
+      senseId: z.coerce.number(),
+      distance: z.coerce.number().nullable().optional(),
+      source: z.string().nullable().optional(),
+    },
+    async (params) => manageCustomSense(client, params)
+  );
+
+  server.tool(
+    "manage_custom_defense_adjustment",
+    "Create/update/delete a custom defense adjustment. Type 1=condition, 2=damage; adjustmentId comes from config damageAdjustments/conditions.",
+    z.object({
+      operation: z.enum(["create", "update", "delete"]),
+      characterId: z.coerce.number(),
+      type: z.coerce.number(),
+      adjustmentId: z.coerce.number(),
+      source: z.string().nullable().optional(),
+      payload: z.record(z.string(), z.unknown()).optional().describe("Additional endpoint payload fields merged before top-level fields."),
+    }).catchall(z.unknown()).shape,
+    async (params) => manageCustomDefenseAdjustment(client, params)
+  );
+
+  server.tool(
+    "manage_custom_action",
+    "Create/update/delete a custom action. actionType: 1 weapon, 2 spell, 3 general. Include actionType on update to avoid DDB nulling it.",
+    z.object({
+      operation: z.enum(["create", "update", "delete"]),
+      characterId: z.coerce.number(),
+      id: z.union([z.coerce.number(), z.string()]).optional(),
+      name: z.string().optional(),
+      actionType: z.coerce.number().optional(),
+      payload: z.record(z.string(), z.unknown()).optional().describe("Additional endpoint payload fields merged before top-level fields."),
+    }).catchall(z.unknown()).shape,
+    async (params) => manageCustomAction(client, params)
+  );
+
+  server.tool(
+    "set_character_decoration",
+    "Set decoration fields: backdrop, frame, portrait, customPortrait, themeColor, or socialImage. Custom portrait uploads accept JPEG/PNG/GIF up to 3MB.",
+    z.object({
+      characterId: z.coerce.number(),
+      kind: z.enum(["backdrop", "frame", "portrait", "customPortrait", "themeColor", "socialImage"]),
+      payload: z.record(z.string(), z.unknown()).optional().describe("Additional endpoint payload fields merged before top-level fields."),
+    }).catchall(z.unknown()).shape,
+    async (params) => setCharacterDecoration(client, params)
+  );
+
+  server.tool(
+    "manage_roll_result",
+    "Manage DDB roll result groups/results. Operations: listGroups, createGroup, updateGroup, updateGroupOrder, deleteGroup, deleteGroups, updateResult.",
+    z.object({
+      operation: z.enum(["listGroups", "createGroup", "updateGroup", "updateGroupOrder", "deleteGroup", "deleteGroups", "updateResult"]),
+      characterId: z.coerce.number(),
+      payload: z.record(z.string(), z.unknown()).optional().describe("Additional endpoint payload fields merged before top-level fields."),
+    }).catchall(z.unknown()).shape,
+    async (params) => manageRollResult(client, params)
+  );
+
+  server.tool(
+    "manage_character_feat",
+    "Manage DDB feat endpoints: createAdHoc, deleteAdHoc, addFromEntity. Payloads must match the DDB web app fields for that feat flow.",
+    z.object({
+      operation: z.enum(["createAdHoc", "deleteAdHoc", "addFromEntity"]),
+      characterId: z.coerce.number(),
+      payload: z.record(z.string(), z.unknown()).optional().describe("Additional endpoint payload fields merged before top-level fields."),
+    }).catchall(z.unknown()).shape,
+    async (params) => manageCharacterFeat(client, params)
+  );
+
+  server.tool(
+    "manage_character_infusion",
+    "Manage DDB infusion endpoints: listItems, addItem, deleteItem, listKnown, createKnown, updateKnown, deleteKnown.",
+    z.object({
+      operation: z.enum(["listItems", "addItem", "deleteItem", "listKnown", "createKnown", "updateKnown", "deleteKnown"]),
+      characterId: z.coerce.number(),
+      payload: z.record(z.string(), z.unknown()).optional().describe("Additional endpoint payload fields merged before top-level fields."),
+    }).catchall(z.unknown()).shape,
+    async (params) => manageCharacterInfusion(client, params)
+  );
+
+  server.tool(
+    "manage_optional_feature",
+    "Manage DDB optional class feature/origin endpoints.",
+    z.object({
+      operation: z.enum(["addClassFeature", "updateClassFeature", "deleteClassFeature", "deleteClassFeatureCollection", "addRacialTrait", "updateRacialTrait", "deleteRacialTrait", "deleteRacialTraitCollection"]),
+      characterId: z.coerce.number(),
+      payload: z.record(z.string(), z.unknown()).optional().describe("Additional endpoint payload fields merged before top-level fields."),
+    }).catchall(z.unknown()).shape,
+    async (params) => manageOptionalFeature(client, params)
+  );
+
+  server.tool(
+    "manage_premade_info",
+    "Get/create/update/delete DDB premade-info payloads.",
+    z.object({
+      operation: z.enum(["get", "create", "update", "delete"]),
+      characterId: z.coerce.number(),
+      payload: z.record(z.string(), z.unknown()).optional().describe("Additional endpoint payload fields merged before top-level fields."),
+    }).catchall(z.unknown()).shape,
+    async (params) => managePremadeInfo(client, params)
+  );
+
+  server.tool(
+    "manage_vehicle",
+    "Manage DDB vehicle endpoints: list/create/update/delete, fuel, conditions, and components. Component operations require characterId plus vehicleMappingId/componentIds or component mapping id.",
+    z.object({
+      operation: z.enum(["list", "create", "update", "delete", "setFuel", "createCondition", "updateCondition", "deleteCondition", "listComponents", "createComponent", "updateComponent", "updateComponentHp"]),
+      characterId: z.coerce.number().optional(),
+      vehicleMappingId: z.union([z.coerce.number(), z.string()]).optional(),
+      id: z.union([z.coerce.number(), z.string()]).optional(),
+      vehicleId: z.union([z.coerce.number(), z.string()]).optional().describe("DDB vehicle definition ID, often a string such as sjliv."),
+      componentId: z.union([z.coerce.number(), z.string()]).optional().describe("DDB vehicle component definition ID, often a string such as sjliv06c."),
+      componentIds: z.array(z.union([z.coerce.number(), z.string()])).optional(),
+      conditionId: z.coerce.number().optional(),
+      removedHitPoints: z.coerce.number().optional(),
+      payload: z.record(z.string(), z.unknown()).optional().describe("Additional endpoint payload fields merged before top-level fields."),
+    }).catchall(z.unknown()).shape,
+    async (params) => manageVehicle(client, params)
+  );
+
+  server.tool(
+    "get_party_inventory",
+    "Get party inventory for a campaign ID.",
+    { campaignId: z.coerce.number() },
+    async (params) => getPartyInventory(client, params)
+  );
+
+  server.tool(
+    "get_character_rule_data",
+    "Get character-scoped rule data from DDB.",
+    { characterId: z.coerce.number() },
+    async (params) => getCharacterRuleData(client, params)
+  );
+
+  server.tool(
+    "get_character_share_url",
+    "Get DDB share URL data for a character.",
+    { characterId: z.coerce.number() },
+    async (params) => getCharacterShareUrl(client, params)
+  );
+
+  server.tool(
+    "generate_character_pdf",
+    "Generate/fetch DDB PDF export data. DDB requires the web-app exportData JSON string plus top-level characterId; characterId alone is not sufficient.",
+    z.object({
+      characterId: z.coerce.number(),
+      exportData: z.string().describe("JSON string from DDB's PDF export-data generator."),
+    }).catchall(z.unknown()).shape,
+    async (params) => generateCharacterPdf(client, params)
+  );
+
+  server.tool(
+    "set_character_feature_flag",
+    "Call DDB's featureflag endpoint with a flags array, e.g. release-gate-character-sheet-campaign-settings.",
+    z.object({ flags: z.array(z.string()) }).catchall(z.unknown()).shape,
+    async (params) => setCharacterFeatureFlag(client, params)
   );
 
   server.tool(
