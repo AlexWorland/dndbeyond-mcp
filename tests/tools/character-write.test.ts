@@ -156,8 +156,8 @@ describe("updateSpellSlots", () => {
     });
 
     expect(mockClient.put).toHaveBeenCalledWith(
-      expect.stringContaining("/character/v5/character/123/spell/slots"),
-      { level: 3, used: 2 },
+      expect.stringContaining("/character/v5/spell/slots"),
+      { characterId: 123, spellslots: { level3: 2 }, update: true },
       ["character:123"]
     );
     expect(result.content[0].text).toContain("Updated level 3 spell slots to 2 used");
@@ -202,6 +202,7 @@ describe("updateDeathSaves", () => {
 
   beforeEach(() => {
     mockClient = {
+      get: vi.fn().mockResolvedValue({ deathSaves: { successCount: 0, failCount: 0 } }),
       put: vi.fn().mockResolvedValue({}),
     } as unknown as DdbClient;
   });
@@ -214,8 +215,8 @@ describe("updateDeathSaves", () => {
     });
 
     expect(mockClient.put).toHaveBeenCalledWith(
-      expect.stringContaining("/character/v5/character/123/life/death-saves"),
-      { successCount: 2 },
+      expect.stringContaining("/character/v5/life/death-saves"),
+      { characterId: 123, successCount: 2, failCount: 0 },
       ["character:123"]
     );
     expect(result.content[0].text).toContain("Updated death saves: 2 successes");
@@ -229,8 +230,8 @@ describe("updateDeathSaves", () => {
     });
 
     expect(mockClient.put).toHaveBeenCalledWith(
-      expect.stringContaining("/character/v5/character/123/life/death-saves"),
-      { failCount: 1 },
+      expect.stringContaining("/character/v5/life/death-saves"),
+      { characterId: 123, successCount: 0, failCount: 1 },
       ["character:123"]
     );
     expect(result.content[0].text).toContain("Updated death saves: 1 failure");
@@ -275,6 +276,7 @@ describe("updateCurrency", () => {
 
   beforeEach(() => {
     mockClient = {
+      get: vi.fn().mockResolvedValue({ currencies: { cp: 0, sp: 0, ep: 0, gp: 0, pp: 0 } }),
       put: vi.fn().mockResolvedValue({}),
     } as unknown as DdbClient;
   });
@@ -287,8 +289,8 @@ describe("updateCurrency", () => {
     });
 
     expect(mockClient.put).toHaveBeenCalledWith(
-      expect.stringContaining("/character/v5/character/123/inventory/currency"),
-      { gp: 150 },
+      expect.stringContaining("/character/v5/inventory/currency"),
+      { characterId: 123, cp: 0, sp: 0, ep: 0, gp: 150, pp: 0 },
       ["character:123"]
     );
     expect(result.content[0].text).toContain("Set GP to 150");
@@ -306,7 +308,7 @@ describe("updateCurrency", () => {
 
       expect(mockClient.put).toHaveBeenCalledWith(
         expect.anything(),
-        { [currency]: 10 },
+        { characterId: 123, cp: 0, sp: 0, ep: 0, gp: 0, pp: 0, [currency]: 10 },
         ["character:123"]
       );
     }

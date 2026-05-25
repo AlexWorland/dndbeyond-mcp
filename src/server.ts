@@ -12,6 +12,18 @@ import {
   getCharacter,
   getDefinition,
   listCharacters,
+  callExperimentalDdbEndpoint,
+  listExperimentalDdbEndpoints,
+  addKnownSpell,
+  removeKnownSpell,
+  restoreHp,
+  setCharacterPreference,
+  setHelpText,
+  setHpBase,
+  setHpBonus,
+  setHpOverride,
+  setProgression,
+  setSpellPrepared,
   updateHp,
   updateSpellSlots,
   updateDeathSaves,
@@ -40,7 +52,18 @@ import {
   setAbilityScoreType,
   setStartingEquipmentType,
   addInventoryItems,
+  addCatalogItem,
+  createCustomItem,
+  deleteCustomItem,
+  listInventoryItems,
+  removeInventoryItem,
   setGold,
+  moveInventoryItem,
+  setInventoryItemAttuned,
+  setInventoryItemCharge,
+  setInventoryItemEquipped,
+  setInventoryItemQuantity,
+  updateCustomItem,
   updateDescription,
 } from "./tools/character.js";
 import { listCampaigns, getCampaignCharacters } from "./tools/campaign.js";
@@ -269,6 +292,138 @@ export async function startServer(): Promise<void> {
         currency: params.currency,
         amount: params.amount,
         delta: params.delta,
+      })
+  );
+
+  server.tool(
+    "set_progression",
+    "Set a character's current XP/progression value.",
+    {
+      characterId: z.coerce.number().describe("The character ID"),
+      currentXp: z.coerce.number().describe("Current XP value"),
+    },
+    async (params) => setProgression(client, params)
+  );
+
+  server.tool(
+    "set_hp_base",
+    "Set a character's base hit points.",
+    {
+      characterId: z.coerce.number().describe("The character ID"),
+      baseHitPoints: z.coerce.number().describe("Base hit points"),
+    },
+    async (params) => setHpBase(client, params)
+  );
+
+  server.tool(
+    "set_hp_bonus",
+    "Set a character's miscellaneous/bonus hit points.",
+    {
+      characterId: z.coerce.number().describe("The character ID"),
+      bonusHitPoints: z.coerce.number().describe("Bonus hit points"),
+    },
+    async (params) => setHpBonus(client, params)
+  );
+
+  server.tool(
+    "set_hp_override",
+    "Set or clear a character's override/max hit points.",
+    {
+      characterId: z.coerce.number().describe("The character ID"),
+      overrideHitPoints: z.coerce.number().nullable().describe("Override HP, or null to clear"),
+    },
+    async (params) => setHpOverride(client, params)
+  );
+
+  server.tool(
+    "restore_hp",
+    "Call D&D Beyond's HP restore endpoint. restoreType is DDB's numeric restore mode; totalHp is the target total HP value.",
+    {
+      characterId: z.coerce.number().describe("The character ID"),
+      totalHp: z.coerce.number().describe("Target total HP"),
+      restoreType: z.coerce.number().describe("DDB restore type"),
+    },
+    async (params) => restoreHp(client, params)
+  );
+
+  server.tool(
+    "set_character_preference",
+    "Set one character preference flag/value by key, e.g. enableOptionalClassFeatures, enableContainerCurrency, ignoreCoinWeight.",
+    {
+      characterId: z.coerce.number().describe("The character ID"),
+      key: z.string().describe("Preference key"),
+      value: z.union([z.boolean(), z.string(), z.coerce.number(), z.null()]).describe("Preference value"),
+    },
+    async (params) => setCharacterPreference(client, params)
+  );
+
+  server.tool(
+    "set_help_text",
+    "Show or hide D&D Beyond sheet help text.",
+    {
+      characterId: z.coerce.number().describe("The character ID"),
+      showHelpText: z.boolean().describe("true to show help text, false to hide"),
+    },
+    async (params) => setHelpText(client, params)
+  );
+
+  server.tool(
+    "add_known_spell",
+    "Add a known class spell. Use classId = class definition ID, spellId = spell definition ID, spellMappingId/entityTypeId from classSpells or spell search data.",
+    {
+      characterId: z.coerce.number().describe("The character ID"),
+      classId: z.coerce.number().describe("Class definition ID, e.g. Wizard 2190886"),
+      spellId: z.coerce.number().describe("Spell definition ID"),
+      spellMappingId: z.coerce.number().describe("DDB spell mapping ID"),
+      spellEntityTypeId: z.coerce.number().describe("DDB spell mapping entity type ID"),
+    },
+    async (params) => addKnownSpell(client, params)
+  );
+
+  server.tool(
+    "remove_known_spell",
+    "Remove a known class spell using the same IDs as add_known_spell.",
+    {
+      characterId: z.coerce.number().describe("The character ID"),
+      classId: z.coerce.number().describe("Class definition ID"),
+      spellId: z.coerce.number().describe("Spell definition ID"),
+      spellMappingId: z.coerce.number().describe("DDB spell mapping ID"),
+      spellEntityTypeId: z.coerce.number().describe("DDB spell mapping entity type ID"),
+    },
+    async (params) => removeKnownSpell(client, params)
+  );
+
+  server.tool(
+    "set_spell_prepared",
+    "Prepare or unprepare a spell. Use classMappingId from character.classes[].id and spellMappingId/entityTypeId from the character/class spell entry.",
+    {
+      characterId: z.coerce.number().describe("The character ID"),
+      classMappingId: z.coerce.number().describe("Character class mapping ID from classes[].id"),
+      spellMappingId: z.coerce.number().describe("DDB spell mapping ID"),
+      spellEntityTypeId: z.coerce.number().describe("DDB spell mapping entity type ID"),
+      prepared: z.boolean().describe("true to prepare, false to unprepare"),
+    },
+    async (params) => setSpellPrepared(client, params)
+  );
+
+  server.tool(
+    "list_experimental_ddb_endpoints",
+    "List additional D&D Beyond character-service endpoints exposed by the web app but not yet modeled as first-class typed tools.",
+    {},
+    async () => listExperimentalDdbEndpoints()
+  );
+
+  server.tool(
+    "call_experimental_ddb_endpoint",
+    "Call an allowlisted additional D&D Beyond character-service endpoint. Use list_experimental_ddb_endpoints first. Prefer typed tools when available; this is for long-tail endpoints whose payloads vary by DDB feature.",
+    {
+      endpoint: z.string().describe("Allowlisted endpoint key from list_experimental_ddb_endpoints"),
+      body: z.record(z.string(), z.unknown()).optional().describe("Request body or GET query/path params"),
+    },
+    async (params) =>
+      callExperimentalDdbEndpoint(client, {
+        endpoint: params.endpoint,
+        body: params.body as Record<string, unknown> | undefined,
       })
   );
 
@@ -634,6 +789,200 @@ export async function startServer(): Promise<void> {
       setGold(client, {
         characterId: params.characterId,
         amount: params.amount,
+      })
+  );
+
+  server.tool(
+    "list_inventory_items",
+    "List character inventory items, including inventory item IDs needed by inventory write tools. Includes custom items by default.",
+    {
+      characterId: z.coerce.number().describe("The character ID"),
+      includeCustom: z.boolean().optional().describe("Include custom items (default: true)"),
+    },
+    async (params) =>
+      listInventoryItems(client, {
+        characterId: params.characterId,
+        includeCustom: params.includeCustom,
+      })
+  );
+
+  server.tool(
+    "add_catalog_item",
+    "Add an official/catalog item to character inventory by itemName, or by entityId/entityTypeId from search_items/get_item.",
+    {
+      characterId: z.coerce.number().describe("The character ID"),
+      itemName: z.string().optional().describe("Catalog item name to search for, e.g. 'Dagger'"),
+      entityId: z.coerce.number().optional().describe("Catalog item entity ID"),
+      entityTypeId: z.coerce.number().optional().describe("Catalog item entity type ID"),
+      quantity: z.coerce.number().optional().describe("Quantity to add (default: 1)"),
+    },
+    async (params) =>
+      addCatalogItem(client, {
+        characterId: params.characterId,
+        itemName: params.itemName,
+        entityId: params.entityId,
+        entityTypeId: params.entityTypeId,
+        quantity: params.quantity,
+      })
+  );
+
+  server.tool(
+    "set_inventory_item_quantity",
+    "Set the quantity of an inventory item using its inventory item ID from list_inventory_items.",
+    {
+      characterId: z.coerce.number().describe("The character ID"),
+      inventoryItemId: z.coerce.number().describe("Inventory item mapping ID from list_inventory_items"),
+      quantity: z.coerce.number().describe("New quantity (0 or greater)"),
+    },
+    async (params) =>
+      setInventoryItemQuantity(client, {
+        characterId: params.characterId,
+        inventoryItemId: params.inventoryItemId,
+        quantity: params.quantity,
+      })
+  );
+
+  server.tool(
+    "set_inventory_item_equipped",
+    "Equip or unequip an inventory item using its inventory item ID from list_inventory_items.",
+    {
+      characterId: z.coerce.number().describe("The character ID"),
+      inventoryItemId: z.coerce.number().describe("Inventory item mapping ID from list_inventory_items"),
+      value: z.boolean().describe("true to equip, false to unequip"),
+    },
+    async (params) =>
+      setInventoryItemEquipped(client, {
+        characterId: params.characterId,
+        inventoryItemId: params.inventoryItemId,
+        value: params.value,
+      })
+  );
+
+  server.tool(
+    "set_inventory_item_attuned",
+    "Attune or unattune an inventory item using its inventory item ID from list_inventory_items.",
+    {
+      characterId: z.coerce.number().describe("The character ID"),
+      inventoryItemId: z.coerce.number().describe("Inventory item mapping ID from list_inventory_items"),
+      value: z.boolean().describe("true to attune, false to unattune"),
+    },
+    async (params) =>
+      setInventoryItemAttuned(client, {
+        characterId: params.characterId,
+        inventoryItemId: params.inventoryItemId,
+        value: params.value,
+      })
+  );
+
+  server.tool(
+    "set_inventory_item_charge",
+    "Set used charges for an inventory item using its inventory item ID from list_inventory_items.",
+    {
+      characterId: z.coerce.number().describe("The character ID"),
+      inventoryItemId: z.coerce.number().describe("Inventory item mapping ID from list_inventory_items"),
+      charges: z.coerce.number().describe("Used charges count"),
+    },
+    async (params) =>
+      setInventoryItemCharge(client, {
+        characterId: params.characterId,
+        inventoryItemId: params.inventoryItemId,
+        charges: params.charges,
+      })
+  );
+
+  server.tool(
+    "move_inventory_item",
+    "Move an inventory item to a container. Use the target container inventory ID and entity type; character container type is 1581111423, inventory item/container type is usually 1439493548.",
+    {
+      characterId: z.coerce.number().describe("The character ID"),
+      inventoryItemId: z.coerce.number().describe("Inventory item mapping ID from list_inventory_items"),
+      containerEntityId: z.coerce.number().describe("Target container entity ID"),
+      containerEntityTypeId: z.coerce.number().describe("Target container entity type ID"),
+    },
+    async (params) =>
+      moveInventoryItem(client, {
+        characterId: params.characterId,
+        inventoryItemId: params.inventoryItemId,
+        containerEntityId: params.containerEntityId,
+        containerEntityTypeId: params.containerEntityTypeId,
+      })
+  );
+
+  server.tool(
+    "remove_inventory_item",
+    "Remove an inventory item using its inventory item ID from list_inventory_items. Custom items are deleted through the custom-item endpoint automatically.",
+    {
+      characterId: z.coerce.number().describe("The character ID"),
+      inventoryItemId: z.coerce.number().describe("Inventory item mapping ID from list_inventory_items"),
+    },
+    async (params) =>
+      removeInventoryItem(client, {
+        characterId: params.characterId,
+        inventoryItemId: params.inventoryItemId,
+      })
+  );
+
+  server.tool(
+    "create_custom_item",
+    "Create a custom item directly on a character. Use list_inventory_items afterward to get its inventory item ID for updates/deletion.",
+    {
+      characterId: z.coerce.number().describe("The character ID"),
+      name: z.string().describe("Custom item name"),
+      description: z.string().optional().describe("Custom item description"),
+      quantity: z.coerce.number().optional().describe("Quantity (default: 1)"),
+      weight: z.coerce.number().optional().describe("Weight in pounds (default: 0)"),
+      cost: z.coerce.number().nullable().optional().describe("Cost in gp, or null"),
+      containerEntityId: z.coerce.number().optional().describe("Optional container entity ID; defaults to the character ID"),
+      containerEntityTypeId: z.coerce.number().optional().describe("Optional container entity type ID; defaults to character container type"),
+    },
+    async (params) =>
+      createCustomItem(client, {
+        characterId: params.characterId,
+        name: params.name,
+        description: params.description,
+        quantity: params.quantity,
+        weight: params.weight,
+        cost: params.cost,
+        containerEntityId: params.containerEntityId,
+        containerEntityTypeId: params.containerEntityTypeId,
+      })
+  );
+
+  server.tool(
+    "update_custom_item",
+    "Update a custom item's name, description, quantity, weight, or cost using its inventory item ID from list_inventory_items.",
+    {
+      characterId: z.coerce.number().describe("The character ID"),
+      inventoryItemId: z.coerce.number().describe("Inventory item mapping ID from list_inventory_items"),
+      name: z.string().optional().describe("New custom item name"),
+      description: z.string().optional().describe("New custom item description"),
+      quantity: z.coerce.number().optional().describe("New quantity"),
+      weight: z.coerce.number().optional().describe("New weight in pounds"),
+      cost: z.coerce.number().nullable().optional().describe("New cost in gp, or null"),
+    },
+    async (params) =>
+      updateCustomItem(client, {
+        characterId: params.characterId,
+        inventoryItemId: params.inventoryItemId,
+        name: params.name,
+        description: params.description,
+        quantity: params.quantity,
+        weight: params.weight,
+        cost: params.cost,
+      })
+  );
+
+  server.tool(
+    "delete_custom_item",
+    "Delete a custom item using its inventory item ID from list_inventory_items.",
+    {
+      characterId: z.coerce.number().describe("The character ID"),
+      inventoryItemId: z.coerce.number().describe("Inventory item mapping ID from list_inventory_items"),
+    },
+    async (params) =>
+      deleteCustomItem(client, {
+        characterId: params.characterId,
+        inventoryItemId: params.inventoryItemId,
       })
   );
 

@@ -19,6 +19,7 @@ export interface DdbCharacter {
   currencies: DdbCurrencies;
   spells: DdbSpellsContainer;
   inventory: DdbInventoryItem[];
+  customItems?: DdbCustomItem[];
   deathSaves: DdbDeathSaves;
   traits: DdbTraits;
   preferences: Record<string, unknown>;
@@ -29,11 +30,16 @@ export interface DdbCharacter {
   feats: DdbFeat[];
   notes: DdbNotes;
   level?: number;
-  pactMagic?: {
+  pactMagic?: Array<{
+    level: number;
+    used: number;
+    available: number;
+  }> | {
     level: number;
     used: number;
     available: number;
   } | null;
+  classSpells?: DdbClassSpells[];
   spellSlots?: Array<{
     level: number;
     used: number;
@@ -92,9 +98,19 @@ export interface DdbSpellsContainer {
   feat: DdbSpell[] | null;
 }
 
+export interface DdbClassSpells {
+  entityTypeId: number;
+  characterClassId: number;
+  spells: DdbSpell[];
+}
+
 export interface DdbSpell {
   id: number;
+  entityTypeId?: number;
+  spellListId?: number | null;
+  characterClassId?: number;
   definition: {
+    id?: number;
     name: string;
     level: number;
     school: string;
@@ -125,20 +141,51 @@ export interface DdbSpell {
 }
 
 export interface DdbInventoryItem {
+  /** Inventory mapping id used by inventory write endpoints. */
   id: number;
-  definition: {
-    name: string;
-    description: string;
-    type: string;
-    rarity: string;
-    weight: number;
-    cost: number | null;
-    isHomebrew: boolean;
-    armorClass?: number | null;
-    filterType?: string;
-  };
-  equipped: boolean;
+  entityTypeId?: number;
+  definition: DdbItemDefinition;
+  definitionId?: number;
+  definitionTypeId?: number;
+  equipped?: boolean;
+  isAttuned?: boolean;
   quantity: number;
+  chargesUsed?: number | null;
+  limitedUse?: unknown;
+  containerEntityId?: number | null;
+  containerEntityTypeId?: number | null;
+  currency?: DdbCurrencies | null;
+}
+
+export interface DdbItemDefinition {
+  id?: number;
+  baseTypeId?: number;
+  entityTypeId?: number;
+  definitionKey?: string;
+  name: string;
+  description?: string | null;
+  type?: string | null;
+  rarity?: string | null;
+  weight?: number | null;
+  cost?: number | null;
+  isHomebrew?: boolean;
+  isCustomItem?: boolean;
+  canEquip?: boolean;
+  canAttune?: boolean;
+  isContainer?: boolean;
+  armorClass?: number | null;
+  filterType?: string | null;
+  grantedModifiers?: DdbModifier[];
+}
+
+export interface DdbCustomItem {
+  id: number;
+  mappingId?: number;
+  name: string;
+  description?: string | null;
+  quantity?: number;
+  weight?: number | null;
+  cost?: number | null;
 }
 
 export interface DdbDeathSaves {
