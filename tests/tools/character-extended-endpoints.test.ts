@@ -62,10 +62,10 @@ describe("extended DDB character-service endpoint tools", () => {
   });
 
   it("updates custom background and toggle separately", async () => {
-    await setCustomBackground(client, { characterId: 123, name: "Archivist", description: "Probe", backgroundType: null });
+    await setCustomBackground(client, { characterId: 123, name: "Archivist", description: "Probe", featuresBackgroundDefinitionId: null, characteristicsBackgroundDefinitionId: null, backgroundType: null });
     expect(client.put).toHaveBeenCalledWith(
       expect.stringContaining("/character/v5/custom/background"),
-      { characterId: 123, name: "Archivist", description: "Probe", backgroundType: null },
+      { characterId: 123, name: "Archivist", description: "Probe", featuresBackgroundDefinitionId: null, characteristicsBackgroundDefinitionId: null, backgroundType: null },
       ["character:123"]
     );
 
@@ -156,6 +156,15 @@ describe("extended DDB character-service endpoint tools", () => {
 
     await manageVehicle(client, { operation: "setFuel", characterId: 123, id: 999, remainingFuel: 10 });
     expect(client.put).toHaveBeenCalledWith(expect.stringContaining("/vehicle/fuel"), { characterId: 123, id: 999, remainingFuel: 10 }, ["character:123"]);
+
+    await manageVehicle(client, { operation: "create", characterId: 123, vehicleId: "sjliv", name: "Living Ship" });
+    expect(client.post).toHaveBeenCalledWith(expect.stringContaining("/vehicle"), { characterId: 123, vehicleId: "sjliv", name: "Living Ship" }, ["character:123"]);
+
+    await manageVehicle(client, { operation: "createComponent", characterId: 123, vehicleMappingId: 999, componentIds: ["sjliv06c", "sj93b3"] });
+    expect(client.post).toHaveBeenCalledWith(expect.stringContaining("/vehicle/component"), { characterId: 123, vehicleMappingId: 999, componentIds: ["sjliv06c", "sj93b3"] }, ["character:123"]);
+
+    const missing = await manageVehicle(client, { operation: "create", characterId: 123 });
+    expect(missing.content[0].text).toContain("Missing required field: vehicleId");
   });
 
   it("routes read-only and misc endpoints", async () => {

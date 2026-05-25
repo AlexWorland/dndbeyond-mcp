@@ -1299,7 +1299,7 @@ async function characterServiceRequest(
   payload = flattenPayload(payload);
   const url = characterServiceUrl(path);
   if (method === "get") {
-    return client.get<unknown>(appendQuery(url, payload), `${cacheKeyPrefix}:${JSON.stringify(payload)}:${Date.now()}`, 0);
+    return client.get<unknown>(appendQuery(url, payload), `${cacheKeyPrefix}:${safeJsonStringify(payload)}`, 0);
   }
   if (method === "post") return client.post<unknown>(url, payload, invalidateFor(payload));
   if (method === "put") return client.put<unknown>(url, payload, invalidateFor(payload));
@@ -1490,15 +1490,24 @@ export async function managePremadeInfo(client: DdbClient, params: { operation: 
   return renderMutationResult(verb, "premade info", payload, result);
 }
 
-export async function manageVehicle(client: DdbClient, params: { operation: "list" | "create" | "update" | "delete" | "setFuel" | "createCondition" | "updateCondition" | "deleteCondition" | "listComponents" | "createComponent" | "updateComponent" | "updateComponentHp"; characterId?: number; vehicleMappingId?: number; id?: number; [key: string]: unknown }): Promise<ToolResult> {
+export async function manageVehicle(client: DdbClient, params: { operation: "list" | "create" | "update" | "delete" | "setFuel" | "createCondition" | "updateCondition" | "deleteCondition" | "listComponents" | "createComponent" | "updateComponent" | "updateComponentHp"; characterId?: number; vehicleMappingId?: number | string; id?: number | string; vehicleId?: number | string; componentId?: number | string; componentIds?: Array<number | string>; conditionId?: number; removedHitPoints?: number; [key: string]: unknown }): Promise<ToolResult> {
   const table = {
-    list: ["get", "vehicles", "Listed"], create: ["post", "vehicle", "Created"], update: ["put", "vehicle", "Updated"], delete: ["delete", "vehicle", "Deleted"], setFuel: ["put", "vehicle/fuel", "Updated"],
-    createCondition: ["post", "vehicle/condition", "Created"], updateCondition: ["put", "vehicle/condition", "Updated"], deleteCondition: ["delete", "vehicle/condition", "Deleted"],
-    listComponents: ["get", "vehicle/components", "Listed"], createComponent: ["post", "vehicle/component", "Created"], updateComponent: ["put", "vehicle/component", "Updated"], updateComponentHp: ["put", "vehicle/component/hp", "Updated"],
+    list: ["get", "vehicles", "Listed", ["characterId"]],
+    create: ["post", "vehicle", "Created", ["characterId", "vehicleId"]],
+    update: ["put", "vehicle", "Updated", ["characterId", "id"]],
+    delete: ["delete", "vehicle", "Deleted", ["characterId", "id"]],
+    setFuel: ["put", "vehicle/fuel", "Updated", ["characterId", "id"]],
+    createCondition: ["post", "vehicle/condition", "Created", ["characterId", "vehicleMappingId", "conditionId"]],
+    updateCondition: ["put", "vehicle/condition", "Updated", ["characterId", "vehicleMappingId", "conditionId"]],
+    deleteCondition: ["delete", "vehicle/condition", "Deleted", ["characterId", "vehicleMappingId", "conditionId"]],
+    listComponents: ["get", "vehicle/components", "Listed", ["characterId", "vehicleMappingId"]],
+    createComponent: ["post", "vehicle/component", "Created", ["characterId", "vehicleMappingId", "componentIds"]],
+    updateComponent: ["put", "vehicle/component", "Updated", ["characterId", "id", "vehicleMappingId", "componentId"]],
+    updateComponentHp: ["put", "vehicle/component/hp", "Updated", ["characterId", "id", "removedHitPoints"]],
   } as const;
-  const missing = requiredPayload(params, ["operation"]);
+  const [method, path, verb, requiredFields] = table[params.operation];
+  const missing = requiredPayload(params, ["operation", ...requiredFields]);
   if (missing) return { content: [{ type: "text", text: missing }] };
-  const [method, path, verb] = table[params.operation];
   const { operation: _operation, ...payload } = params;
   const result = await characterServiceRequest(client, method, path, payload, `vehicle-${params.operation}`);
   return renderMutationResult(verb, "vehicle data", payload, result);

@@ -76,7 +76,7 @@ After adding the configuration, restart Claude Desktop.
 - `manage_custom_proficiency` / `manage_custom_movement` / `manage_custom_sense` / `manage_custom_defense_adjustment` / `manage_custom_action` — Create/update/delete DDB custom sheet entities
 - `manage_character_feat` / `manage_character_infusion` / `manage_optional_feature` — Manage feat, infusion, and optional-feature endpoint families
 - `manage_roll_result` — Manage DDB roll result groups/results
-- `manage_vehicle` — Manage DDB vehicle mappings, fuel, conditions, and component data; vehicle/component IDs are DDB string IDs like `sjliv`/`sjliv06c`
+- `manage_vehicle` — Manage DDB vehicle mappings, fuel, conditions, and component data; vehicle/component definition IDs are strings like `sjliv`/`sjliv06c`, while mapping IDs are returned by DDB as numeric IDs
 - `set_character_decoration` / `get_character_rule_data` / `get_character_share_url` / `generate_character_pdf` / `manage_premade_info` / `set_character_feature_flag` — Additional typed character-service endpoints reverse-engineered from the DDB web app; PDF generation requires DDB `exportData`, and feature flags require a `flags` array
 - `list_experimental_ddb_endpoints` / `call_experimental_ddb_endpoint` — Allowlisted fallback for DDB character-service endpoints whose payloads still vary by feature/account state
 - `list_inventory_items` — List inventory and IDs used by inventory write tools
