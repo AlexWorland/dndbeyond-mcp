@@ -419,10 +419,11 @@ export async function startServer(): Promise<void> {
 
   server.tool(
     "set_spell_prepared",
-    "Prepare or unprepare a spell. Use classMappingId from character.classes[].id and spellMappingId/entityTypeId from the character/class spell entry.",
+    "Prepare or unprepare a spell. Use classMappingId from character.classes[].id, spellId from spell.definition.id, and spellMappingId/entityTypeId from the character/class spell entry.",
     {
       characterId: z.coerce.number().describe("The character ID"),
       classMappingId: z.coerce.number().describe("Character class mapping ID from classes[].id"),
+      spellId: z.coerce.number().describe("Spell definition ID"),
       spellMappingId: z.coerce.number().describe("DDB spell mapping ID"),
       spellEntityTypeId: z.coerce.number().describe("DDB spell mapping entity type ID"),
       prepared: z.boolean().describe("true to prepare, false to unprepare"),

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { DdbClient } from "../api/client.js";
 import { DDB_CHARACTER_SERVICE, ENDPOINTS } from "../api/endpoints.js";
 import { HttpError } from "../resilience/index.js";
@@ -120,15 +121,32 @@ function interpolateExperimentalPath(path: string, body: Record<string, unknown>
   });
 }
 
-function appendQuery(url: string, body: Record<string, unknown>): string {
+function appendQuery(url: string, body: Record<string, unknown>, excludeKeys: ReadonlySet<string> = new Set()): string {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(body)) {
-    if (value === undefined || value === null || key === "body") continue;
+    if (excludeKeys.has(key) || value === undefined || value === null || key === "body") continue;
     if (typeof value === "object") continue;
     params.set(key, String(value));
   }
   const query = params.toString();
   return query ? `${url}${url.includes("?") ? "&" : "?"}${query}` : url;
+}
+
+function getPathParamNames(path: string): Set<string> {
+  return new Set([...path.matchAll(/\{([^}]+)\}/g)].map((match) => match[1]));
+}
+
+function stableJsonStringify(value: unknown): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map((item) => stableJsonStringify(item)).join(",")}]`;
+  const entries = Object.entries(value as Record<string, unknown>)
+    .filter(([, entryValue]) => entryValue !== undefined)
+    .sort(([a], [b]) => a.localeCompare(b));
+  return `{${entries.map(([key, entryValue]) => `${JSON.stringify(key)}:${stableJsonStringify(entryValue)}`).join(",")}}`;
+}
+
+function hashedCacheKey(prefix: string, value: unknown): string {
+  return `${prefix}:${createHash("sha256").update(stableJsonStringify(value)).digest("hex").slice(0, 16)}`;
 }
 
 function safeJsonStringify(value: unknown): string {
@@ -164,8 +182,8 @@ export async function callExperimentalDdbEndpoint(
     let result: unknown;
 
     if (endpoint.method === "GET") {
-      url = appendQuery(url, body);
-      result = await client.get<unknown>(url, `experimental:${params.endpoint}:${safeJsonStringify(body)}`, 0);
+      url = appendQuery(url, body, getPathParamNames(endpoint.path));
+      result = await client.get<unknown>(url, hashedCacheKey(`experimental:${params.endpoint}`, body), 0);
     } else if (endpoint.method === "POST") {
       result = await client.post<unknown>(url, body, typeof body.characterId === "number" ? [`character:${body.characterId}`] : undefined);
     } else if (endpoint.method === "PUT") {
@@ -1867,7 +1885,7 @@ interface RestoreHpParams { characterId: number; totalHp: number; restoreType: n
 interface SetCharacterPreferenceParams { characterId: number; key: string; value: string | number | boolean | null }
 interface SetHelpTextParams { characterId: number; showHelpText: boolean }
 interface SpellKnownParams { characterId: number; classId: number; spellId: number; spellMappingId: number; spellEntityTypeId: number }
-interface SetSpellPreparedParams { characterId: number; classMappingId: number; spellMappingId: number; spellEntityTypeId: number; prepared: boolean }
+interface SetSpellPreparedParams { characterId: number; classMappingId: number; spellId: number; spellMappingId: number; spellEntityTypeId: number; prepared: boolean }
 
 export async function setProgression(client: DdbClient, params: SetProgressionParams): Promise<ToolResult> {
   if (!Number.isInteger(params.currentXp) || params.currentXp < 0) {
@@ -1935,7 +1953,7 @@ export async function setSpellPrepared(client: DdbClient, params: SetSpellPrepar
   await client.put(ENDPOINTS.character.spell.setPrepared(), {
     characterId: params.characterId,
     characterClassId: params.classMappingId,
-    spellId: params.spellMappingId,
+    spellId: params.spellId,
     id: params.spellMappingId,
     entityTypeId: params.spellEntityTypeId,
     prepared: params.prepared,
@@ -2659,7 +2677,7 @@ async function getCharacterForInventory(client: DdbClient, characterId: number):
   return client.get<DdbCharacter>(
     ENDPOINTS.character.get(characterId),
     `character:${characterId}:inventory`,
-    0
+    5_000
   );
 }
 

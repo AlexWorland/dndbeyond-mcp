@@ -8,10 +8,20 @@ import {
   listInventoryItems,
   moveInventoryItem,
   removeInventoryItem,
+  restoreHp,
+  setCharacterPreference,
+  setHelpText,
+  setHpBase,
+  setHpBonus,
+  setHpOverride,
   setInventoryItemAttuned,
   setInventoryItemCharge,
   setInventoryItemEquipped,
   setInventoryItemQuantity,
+  setProgression,
+  setSpellPrepared,
+  addKnownSpell,
+  removeKnownSpell,
   updateCurrency,
   updateCustomItem,
   updateDeathSaves,
@@ -453,6 +463,72 @@ describe("updateHp with temporary HP", () => {
   });
 });
 
+describe("new character write helper payloads", () => {
+  it("routes progression, HP internals, preferences, and help text", async () => {
+    const mockClient = { put: vi.fn().mockResolvedValue({}) } as unknown as DdbClient;
+
+    await setProgression(mockClient, { characterId: 123, currentXp: 900 });
+    expect(mockClient.put).toHaveBeenCalledWith(expect.stringContaining("/progression"), { characterId: 123, currentXp: 900 }, ["character:123"]);
+
+    await setHpBase(mockClient, { characterId: 123, baseHitPoints: 44 });
+    expect(mockClient.put).toHaveBeenCalledWith(expect.stringContaining("/life/hp/base"), { characterId: 123, baseHitPoints: 44 }, ["character:123"]);
+
+    await setHpBonus(mockClient, { characterId: 123, bonusHitPoints: 3 });
+    expect(mockClient.put).toHaveBeenCalledWith(expect.stringContaining("/life/hp/bonus"), { characterId: 123, bonusHitPoints: 3 }, ["character:123"]);
+
+    await setHpOverride(mockClient, { characterId: 123, overrideHitPoints: null });
+    expect(mockClient.put).toHaveBeenCalledWith(expect.stringContaining("/life/hp/override"), { characterId: 123, overrideHitPoints: null }, ["character:123"]);
+
+    await restoreHp(mockClient, { characterId: 123, totalHp: 47, restoreType: 1 });
+    expect(mockClient.put).toHaveBeenCalledWith(expect.stringContaining("/life/restore"), { characterId: 123, totalHp: 47, restoreType: 1 }, ["character:123"]);
+
+    await setCharacterPreference(mockClient, { characterId: 123, key: "enableOptionalClassFeatures", value: true });
+    expect(mockClient.put).toHaveBeenCalledWith(expect.stringContaining("/preferences"), { characterId: 123, enableOptionalClassFeatures: true }, ["character:123"]);
+
+    await setHelpText(mockClient, { characterId: 123, showHelpText: false });
+    expect(mockClient.put).toHaveBeenCalledWith(expect.stringContaining("/help-text"), { characterId: 123, showHelpText: false }, ["character:123"]);
+  });
+
+  it("validates progression, base HP, and preference keys", async () => {
+    const mockClient = { put: vi.fn() } as unknown as DdbClient;
+
+    expect((await setProgression(mockClient, { characterId: 123, currentXp: -1 })).content[0].text).toContain("Current XP must be a non-negative integer");
+    expect((await setHpBase(mockClient, { characterId: 123, baseHitPoints: 0 })).content[0].text).toContain("Base HP must be a positive integer");
+    expect((await setCharacterPreference(mockClient, { characterId: 123, key: "   ", value: true })).content[0].text).toContain("Preference key cannot be empty");
+    expect(mockClient.put).not.toHaveBeenCalled();
+  });
+
+  it("routes known spell and prepared spell payloads with separate definition and mapping IDs", async () => {
+    const mockClient = {
+      post: vi.fn().mockResolvedValue({ definition: { name: "Magic Missile" } }),
+      delete: vi.fn().mockResolvedValue({}),
+      put: vi.fn().mockResolvedValue({}),
+    } as unknown as DdbClient;
+
+    const spellParams = { characterId: 123, classId: 2190886, spellId: 12345, spellMappingId: 67890, spellEntityTypeId: 112233 };
+    await addKnownSpell(mockClient, spellParams);
+    expect(mockClient.post).toHaveBeenCalledWith(
+      expect.stringContaining("/spell"),
+      { characterId: 123, characterClassId: 2190886, spellId: 12345, id: 67890, entityTypeId: 112233 },
+      ["character:123"]
+    );
+
+    await removeKnownSpell(mockClient, spellParams);
+    expect(mockClient.delete).toHaveBeenCalledWith(
+      expect.stringContaining("/spell"),
+      { characterId: 123, characterClassId: 2190886, spellId: 12345, id: 67890, entityTypeId: 112233 },
+      ["character:123"]
+    );
+
+    await setSpellPrepared(mockClient, { characterId: 123, classMappingId: 456, spellId: 12345, spellMappingId: 67890, spellEntityTypeId: 112233, prepared: true });
+    expect(mockClient.put).toHaveBeenCalledWith(
+      expect.stringContaining("/spell/prepared"),
+      { characterId: 123, characterClassId: 456, spellId: 12345, id: 67890, entityTypeId: 112233, prepared: true },
+      ["character:123"]
+    );
+  });
+});
+
 describe("experimental DDB endpoint tools", () => {
   it("lists allowlisted endpoint keys", async () => {
     const result = await listExperimentalDdbEndpoints();
@@ -471,10 +547,11 @@ describe("experimental DDB endpoint tools", () => {
     });
 
     expect(mockClient.get).toHaveBeenCalledWith(
-      expect.stringContaining("/character/v5/party/inventory/42?campaignId=42"),
-      expect.stringContaining('experimental:party_inventory'),
+      expect.stringContaining("/character/v5/party/inventory/42"),
+      expect.stringMatching(/^experimental:party_inventory:[a-f0-9]{16}$/),
       0
     );
+    expect(vi.mocked(mockClient.get).mock.calls[0][0]).not.toContain("campaignId=42");
     expect(result.content[0].text).toContain("Called GET");
   });
 
