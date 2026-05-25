@@ -20,7 +20,7 @@ Current status:
 Latest local verification from the merged stack:
 
 - `npm run build` — passing
-- `npm test -- --run` — passing, 24 test files / 261 tests
+- `npm test` — passing, 24 test files / 261 tests
 - `npm run test:live -- tests/live/extended-character-service.test.ts` — passing with live DDB credentials and throwaway character cleanup
 - `gitleaks detect --no-git --source . --redact` — no leaks found
 
@@ -141,7 +141,7 @@ Before cutting a release or merging endpoint changes:
 
 ```bash
 npm run build
-npm test -- --run
+npm test
 ```
 
 When live credentials are available and the change touches DDB mutations:
