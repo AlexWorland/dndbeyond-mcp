@@ -131,6 +131,14 @@ function appendQuery(url: string, body: Record<string, unknown>): string {
   return query ? `${url}${url.includes("?") ? "&" : "?"}${query}` : url;
 }
 
+function safeJsonStringify(value: unknown): string {
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
 export async function listExperimentalDdbEndpoints(): Promise<ToolResult> {
   const lines = ["# Experimental D&D Beyond character endpoints\n"];
   for (const [key, endpoint] of Object.entries(EXPERIMENTAL_CHARACTER_ENDPOINTS).sort(([a], [b]) => a.localeCompare(b))) {
@@ -149,23 +157,29 @@ export async function callExperimentalDdbEndpoint(
   }
 
   const body = params.body ?? {};
-  const path = interpolateExperimentalPath(endpoint.path, body);
-  let url = `${DDB_CHARACTER_SERVICE}/character/v5/${path}`;
-  let result: unknown;
 
-  if (endpoint.method === "GET") {
-    url = appendQuery(url, body);
-    result = await client.get<unknown>(url, `experimental:${params.endpoint}:${JSON.stringify(body)}:${Date.now()}`, 0);
-  } else if (endpoint.method === "POST") {
-    result = await client.post<unknown>(url, body, typeof body.characterId === "number" ? [`character:${body.characterId}`] : undefined);
-  } else if (endpoint.method === "PUT") {
-    result = await client.put<unknown>(url, body, typeof body.characterId === "number" ? [`character:${body.characterId}`] : undefined);
-  } else {
-    result = await client.delete<unknown>(url, body, typeof body.characterId === "number" ? [`character:${body.characterId}`] : undefined);
+  try {
+    const path = interpolateExperimentalPath(endpoint.path, body);
+    let url = `${DDB_CHARACTER_SERVICE}/character/v5/${path}`;
+    let result: unknown;
+
+    if (endpoint.method === "GET") {
+      url = appendQuery(url, body);
+      result = await client.get<unknown>(url, `experimental:${params.endpoint}:${safeJsonStringify(body)}`, 0);
+    } else if (endpoint.method === "POST") {
+      result = await client.post<unknown>(url, body, typeof body.characterId === "number" ? [`character:${body.characterId}`] : undefined);
+    } else if (endpoint.method === "PUT") {
+      result = await client.put<unknown>(url, body, typeof body.characterId === "number" ? [`character:${body.characterId}`] : undefined);
+    } else {
+      result = await client.delete<unknown>(url, body, typeof body.characterId === "number" ? [`character:${body.characterId}`] : undefined);
+    }
+
+    const rendered = typeof result === "string" ? result : safeJsonStringify(result);
+    return { content: [{ type: "text", text: `Called ${endpoint.method} /character/v5/${endpoint.path}\n\n${rendered ?? ""}`.slice(0, 12_000) }] };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { content: [{ type: "text", text: `Failed to call ${endpoint.method} /character/v5/${endpoint.path}: ${message}` }] };
   }
-
-  const rendered = typeof result === "string" ? result : JSON.stringify(result, null, 2);
-  return { content: [{ type: "text", text: `Called ${endpoint.method} /character/v5/${endpoint.path}\n\n${rendered ?? ""}`.slice(0, 12_000) }] };
 }
 
 function formatAbilityScores(char: DdbCharacter): string {
@@ -1535,16 +1549,16 @@ export async function updateCurrency(
     };
   }
 
+  const character = await client.get<DdbCharacter>(
+    ENDPOINTS.character.get(params.characterId),
+    `character:${params.characterId}`,
+    60_000
+  );
+
   let finalAmount: number;
   let description: string;
 
   if (params.delta !== undefined) {
-    // Delta mode: fetch current currency and add/subtract
-    const character = await client.get<DdbCharacter>(
-      ENDPOINTS.character.get(params.characterId),
-      `character:${params.characterId}`,
-      60_000
-    );
     const current = character.currencies[params.currency];
     finalAmount = Math.max(0, current + params.delta);
 
@@ -1558,11 +1572,6 @@ export async function updateCurrency(
     description = `Set ${params.currency.toUpperCase()} to ${finalAmount}`;
   }
 
-  const character = await client.get<DdbCharacter>(
-    ENDPOINTS.character.get(params.characterId),
-    `character:${params.characterId}`,
-    60_000
-  );
   const nextCurrencies = { ...character.currencies, [params.currency]: finalAmount };
 
   await client.put(
@@ -2375,8 +2384,8 @@ function getInventoryItemName(item: DdbInventoryItem): string {
 async function getCharacterForInventory(client: DdbClient, characterId: number): Promise<DdbCharacter> {
   return client.get<DdbCharacter>(
     ENDPOINTS.character.get(characterId),
-    `character:${characterId}:${Date.now()}`,
-    1
+    `character:${characterId}:inventory`,
+    0
   );
 }
 
@@ -2537,7 +2546,14 @@ export async function removeInventoryItem(
     return { content: [{ type: "text", text: `Inventory item ${params.inventoryItemId} was not found on ${character.name}.` }] };
   }
   if (isCustomInventoryItem(item)) {
-    return deleteCustomItem(client, params);
+    const definitionId = item.definition?.id;
+    if (!definitionId) return { content: [{ type: "text", text: `${getInventoryItemName(item)} is missing a custom definition ID.` }] };
+    await client.delete(
+      ENDPOINTS.character.inventory.customItem(),
+      { characterId: params.characterId, id: definitionId, mappingId: params.inventoryItemId, partyId: null },
+      [`character:${params.characterId}`]
+    );
+    return { content: [{ type: "text", text: `Deleted custom item "${getInventoryItemName(item)}" from ${character.name}.` }] };
   }
 
   await client.delete(
