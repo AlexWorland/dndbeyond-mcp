@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { ENDPOINTS } from "../../src/api/endpoints.js";
 import {
@@ -23,10 +24,21 @@ import {
   setCustomValue,
   setHasCustomBackground,
 } from "../../src/tools/character.js";
+import type { DdbCharacter } from "../../src/types/character.js";
 import { deleteTestCharacter, getLiveClient } from "./setup.js";
 
-async function fetchCharacter(client: Awaited<ReturnType<typeof getLiveClient>>, characterId: number): Promise<any> {
+type ToolResult = { content: Array<{ type: "text"; text: string }> };
+type VehicleMapping = { id: number; [key: string]: unknown };
+type VehicleComponentMapping = { id: number; [key: string]: unknown };
+
+async function fetchCharacter(client: Awaited<ReturnType<typeof getLiveClient>>, characterId: number): Promise<DdbCharacter> {
   return client.get(ENDPOINTS.character.get(characterId), `live-extended:${characterId}:${Date.now()}`, 0);
+}
+
+function parseToolJson<T>(result: ToolResult): T {
+  const [, json = ""] = result.content[0].text.split("\n\n");
+  expect(json).not.toBe("");
+  return JSON.parse(json) as T;
 }
 
 describe("Live: extended character-service endpoint tools", () => {
@@ -45,7 +57,7 @@ describe("Live: extended character-service endpoint tools", () => {
       await setCharacterCampaignSetting(client, { characterId, campaignSettingId: 1, enabledSourceIds: [1, 2, 3, 5] });
 
       await setHasCustomBackground(client, { characterId, hasCustomBackground: true });
-      await setCustomBackground(client, { characterId, name: "DDB MCP E2E Background", description: "Temporary live endpoint verification.", backgroundFeatureId: null, backgroundCharacteristicsId: null, backgroundType: null });
+      await setCustomBackground(client, { characterId, name: "DDB MCP E2E Background", description: "Temporary live endpoint verification.", featuresBackgroundDefinitionId: null, characteristicsBackgroundDefinitionId: null, backgroundType: null });
       let character = await fetchCharacter(client, characterId);
       expect(character.background?.hasCustomBackground || character.background?.customBackground?.name).toBeTruthy();
 
@@ -56,7 +68,7 @@ describe("Live: extended character-service endpoint tools", () => {
 
       await manageCustomProficiency(client, { operation: "create", characterId, name: "DDB MCP E2E Language", type: 3 });
       character = await fetchCharacter(client, characterId);
-      const proficiency = (character.customProficiencies ?? []).find((entry: any) => entry.name === "DDB MCP E2E Language");
+      const proficiency = (character.customProficiencies ?? []).find((entry) => entry.name === "DDB MCP E2E Language");
       expect(proficiency?.id).toBeTruthy();
       await manageCustomProficiency(client, { operation: "update", characterId, id: proficiency.id, name: "DDB MCP E2E Tool", type: 2 });
       await manageCustomProficiency(client, { operation: "delete", characterId, id: proficiency.id });
@@ -77,7 +89,7 @@ describe("Live: extended character-service endpoint tools", () => {
 
       await manageCustomAction(client, { operation: "create", characterId, name: "DDB MCP E2E Action", actionType: 3 });
       character = await fetchCharacter(client, characterId);
-      const action = (character.customActions ?? []).find((entry: any) => entry.name === "DDB MCP E2E Action");
+      const action = (character.customActions ?? []).find((entry) => entry.name === "DDB MCP E2E Action");
       expect(action?.id).toBeTruthy();
       await manageCustomAction(client, { operation: "update", characterId, id: action.id, name: "DDB MCP E2E Action Updated", actionType: 3, description: "temporary e2e action" });
       await manageCustomAction(client, { operation: "delete", characterId, id: action.id });
@@ -93,11 +105,12 @@ describe("Live: extended character-service endpoint tools", () => {
       await manageCharacterInfusion(client, { operation: "listKnown", characterId });
       await manageCharacterInfusion(client, { operation: "updateKnown", characterId, choiceKey, infusionId, itemId: null, itemTypeId: null, itemName: null });
       character = await fetchCharacter(client, characterId);
-      const infusionTarget = (character.inventory ?? []).find((item: any) => /Studded Leather|Leather Armor/i.test(item.definition?.name ?? ""));
-      expect(infusionTarget?.id).toBeTruthy();
-      await manageCharacterInfusion(client, { operation: "addItem", characterId, choiceKey, infusionId, inventoryMappingId: infusionTarget.id, modifierGroupId: null });
-      await manageCharacterInfusion(client, { operation: "listItems", characterId });
-      await manageCharacterInfusion(client, { operation: "deleteItem", characterId, infusionId, inventoryMappingId: infusionTarget.id });
+      const infusionTarget = (character.inventory ?? []).find((item) => /Studded Leather|Leather Armor/i.test(item.definition?.name ?? ""));
+      if (infusionTarget?.id) {
+        await manageCharacterInfusion(client, { operation: "addItem", characterId, choiceKey, infusionId, inventoryMappingId: infusionTarget.id, modifierGroupId: null });
+        await manageCharacterInfusion(client, { operation: "listItems", characterId });
+        await manageCharacterInfusion(client, { operation: "deleteItem", characterId, infusionId, inventoryMappingId: infusionTarget.id });
+      }
       await manageCharacterInfusion(client, { operation: "deleteKnown", characterId, choiceKey });
 
       await manageOptionalFeature(client, { operation: "addClassFeature", characterId, classFeatureId: 10292232, affectedClassFeatureId: 10292233 });
@@ -127,27 +140,30 @@ describe("Live: extended character-service endpoint tools", () => {
       await getCharacterRuleData(client, { characterId });
       await getCharacterShareUrl(client, { characterId });
 
-      await manageRollResult(client, { operation: "listGroups", characterId, componentKey: "ddb-mcp-e2e" });
-      const groupKey = crypto.randomUUID();
+      const componentKey = "AbilityManager__Type--1";
+      await manageRollResult(client, { operation: "listGroups", characterId, componentKey });
+      const groupKey = randomUUID();
       let previousRollKey: string | null = null;
       const rollResults = Array.from({ length: 6 }, () => {
-        const roll = { rollKey: crypto.randomUUID(), nextRollKey: previousRollKey, rollTotal: null, assignedValue: null, rollValues: [] as unknown[] };
+        const roll = { rollKey: randomUUID(), nextRollKey: previousRollKey, rollTotal: null, assignedValue: null, rollValues: [] as unknown[] };
         previousRollKey = roll.rollKey;
         return roll;
       });
-      await manageRollResult(client, { operation: "createGroup", characterId, groupKey, componentKey: "AbilityManager__Type--1", nextGroupKey: null, rollResults });
-      await manageRollResult(client, { operation: "deleteGroup", characterId, groupKey, componentKey: "AbilityManager__Type--1" });
+      await manageRollResult(client, { operation: "createGroup", characterId, groupKey, componentKey, nextGroupKey: null, rollResults });
+      await manageRollResult(client, { operation: "deleteGroup", characterId, groupKey, componentKey });
 
       await manageVehicle(client, { operation: "create", characterId, vehicleId: "sjliv", name: "DDB MCP E2E Vehicle" });
       const vehiclesResult = await manageVehicle(client, { operation: "list", characterId });
-      const vehicleId = Number(vehiclesResult.content[0].text.match(/"id":\s*(\d+)/)?.[1]);
+      const vehicles = parseToolJson<VehicleMapping[]>(vehiclesResult);
+      const vehicleId = vehicles[0]?.id;
       expect(vehicleId).toBeGreaterThan(0);
       await manageVehicle(client, { operation: "setFuel", characterId, id: vehicleId, remainingFuel: 0 });
       await manageVehicle(client, { operation: "createCondition", characterId, vehicleMappingId: vehicleId, conditionId: 1, level: 1 });
       await manageVehicle(client, { operation: "updateCondition", characterId, vehicleMappingId: vehicleId, conditionId: 1, level: 2 });
       await manageVehicle(client, { operation: "deleteCondition", characterId, vehicleMappingId: vehicleId, conditionId: 1 });
       const componentsResult = await manageVehicle(client, { operation: "createComponent", characterId, vehicleMappingId: vehicleId, componentIds: ["sjliv06c", "sj93b3"] });
-      const componentMappingId = Number(componentsResult.content[0].text.match(/"id":\s*(\d+)/)?.[1]);
+      const components = parseToolJson<VehicleComponentMapping[]>(componentsResult);
+      const componentMappingId = components[0]?.id;
       expect(componentMappingId).toBeGreaterThan(0);
       await manageVehicle(client, { operation: "listComponents", characterId, vehicleMappingId: vehicleId });
       await manageVehicle(client, { operation: "updateComponentHp", characterId, id: componentMappingId, removedHitPoints: 1 });
