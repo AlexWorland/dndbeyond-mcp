@@ -33,10 +33,13 @@ async function fetchCharacterState(
 describe("Live: Write endpoints", () => {
   it("should handle HP update (write or deprecation notice)", async () => {
     const { client, testCharacterId } = await setupLiveCharacter();
+    const before = await fetchCharacterState(client, testCharacterId);
+    const temporaryHitPoints = before.temporaryHitPoints ?? 0;
 
     const result = await updateHp(client, {
       characterId: testCharacterId,
       hpChange: -1,
+      temporaryHitPoints,
     });
     const text = result.content[0].text;
 
@@ -50,6 +53,7 @@ describe("Live: Write endpoints", () => {
       await updateHp(client, {
         characterId: testCharacterId,
         hpChange: 1,
+        temporaryHitPoints,
       });
     }
   });
@@ -68,7 +72,7 @@ describe("Live: Write endpoints", () => {
       expect(text).toContain("deprecated");
       expect(text).toContain(String(testCharacterId));
     } else {
-      expect(text).toContain("gp");
+      expect(text.toLowerCase()).toContain("gp");
       // Rollback
       await updateCurrency(client, {
         characterId: testCharacterId,

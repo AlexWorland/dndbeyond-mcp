@@ -130,11 +130,12 @@ describe("updateHp", () => {
     const result = await updateHp(mockClient, {
       characterId: 123,
       hpChange: 10,
+      temporaryHitPoints: 0,
     });
 
     expect(mockClient.put).toHaveBeenCalledWith(
       expect.stringContaining("/character/v5/life/hp/damage-taken"),
-      { characterId: 123, removedHitPoints: 0 },
+      { characterId: 123, removedHitPoints: 0, temporaryHitPoints: 0 },
       ["character:123"]
     );
     expect(result.content[0].text).toContain("Healed Test Character for 10 HP");
@@ -144,11 +145,12 @@ describe("updateHp", () => {
     const result = await updateHp(mockClient, {
       characterId: 123,
       hpChange: -5,
+      temporaryHitPoints: 0,
     });
 
     expect(mockClient.put).toHaveBeenCalledWith(
       expect.stringContaining("/character/v5/life/hp/damage-taken"),
-      { characterId: 123, removedHitPoints: 15 },
+      { characterId: 123, removedHitPoints: 15, temporaryHitPoints: 0 },
       ["character:123"]
     );
     expect(result.content[0].text).toContain("Damaged Test Character for 5 HP");
@@ -158,11 +160,12 @@ describe("updateHp", () => {
     await updateHp(mockClient, {
       characterId: 123,
       hpChange: -100,
+      temporaryHitPoints: 0,
     });
 
     expect(mockClient.put).toHaveBeenCalledWith(
       expect.anything(),
-      { characterId: 123, removedHitPoints: 45 },
+      { characterId: 123, removedHitPoints: 45, temporaryHitPoints: 0 },
       expect.anything()
     );
   });
@@ -419,11 +422,11 @@ describe("updateHp with temporary HP", () => {
     } as unknown as DdbClient;
   });
 
-  it("should include temporaryHitPoints in PUT body when tempHp is provided", async () => {
+  it("should include temporaryHitPoints in PUT body when temporaryHitPoints is provided", async () => {
     const result = await updateHp(mockClient, {
       characterId: 123,
       hpChange: 5,
-      tempHp: 10,
+      temporaryHitPoints: 10,
     });
 
     expect(mockClient.put).toHaveBeenCalledWith(
@@ -434,24 +437,21 @@ describe("updateHp with temporary HP", () => {
     expect(result.content[0].text).toContain("(10 temp HP)");
   });
 
-  it("should not include temporaryHitPoints when tempHp is undefined", async () => {
-    await updateHp(mockClient, {
+  it("should return a clear error when temporaryHitPoints is missing", async () => {
+    const result = await updateHp(mockClient, {
       characterId: 123,
       hpChange: 5,
     });
 
-    expect(mockClient.put).toHaveBeenCalledWith(
-      expect.stringContaining("/character/v5/life/hp/damage-taken"),
-      { characterId: 123, removedHitPoints: 5 },
-      ["character:123"]
-    );
+    expect(mockClient.put).not.toHaveBeenCalled();
+    expect(result.content[0].text).toContain("temporaryHitPoints is required");
   });
 
   it("should set temporaryHitPoints to 0 when tempHp is 0", async () => {
     const result = await updateHp(mockClient, {
       characterId: 123,
       hpChange: 0,
-      tempHp: 0,
+      temporaryHitPoints: 0,
     });
 
     expect(mockClient.put).toHaveBeenCalledWith(

@@ -1570,6 +1570,9 @@ export async function setCharacterFeatureFlag(client: DdbClient, params: { flags
 interface UpdateHpParams {
   characterId: number;
   hpChange: number;
+  /** Required by DDB's damage-taken endpoint; absolute temp HP value, not a delta. */
+  temporaryHitPoints?: number;
+  /** @deprecated Use temporaryHitPoints. Kept for direct-call compatibility. */
   tempHp?: number;
 }
 
@@ -1591,14 +1594,23 @@ export async function updateHp(
     )
   );
 
-  const putBody: { characterId: number; removedHitPoints: number; temporaryHitPoints?: number } = {
+  const temporaryHitPoints = params.temporaryHitPoints ?? params.tempHp;
+  if (temporaryHitPoints === undefined) {
+    return {
+      content: [
+        {
+          type: "text",
+          text: "temporaryHitPoints is required by DDB's HP endpoint. Use 0 when the character has no temporary HP.",
+        },
+      ],
+    };
+  }
+
+  const putBody: { characterId: number; removedHitPoints: number; temporaryHitPoints: number } = {
     characterId: params.characterId,
     removedHitPoints: newRemovedHp,
+    temporaryHitPoints,
   };
-
-  if (params.tempHp !== undefined) {
-    putBody.temporaryHitPoints = params.tempHp;
-  }
 
   await client.put(
     ENDPOINTS.character.updateHp(),
@@ -1611,9 +1623,7 @@ export async function updateHp(
   const newCurrent = calculateMaxHp(character) - newRemovedHp;
 
   let text = `${action} ${character.name} for ${amount} HP. Current HP: ${newCurrent}/${calculateMaxHp(character)}`;
-  if (params.tempHp !== undefined) {
-    text += ` (${params.tempHp} temp HP)`;
-  }
+  text += ` (${temporaryHitPoints} temp HP)`;
 
   return {
     content: [

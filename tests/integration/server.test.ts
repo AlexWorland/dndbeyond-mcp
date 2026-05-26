@@ -83,11 +83,13 @@ function createTestServer(): { server: McpServer; client: DdbClient } {
     {
       characterId: z.number(),
       hpChange: z.number(),
+      temporaryHitPoints: z.number(),
     },
     async (params) =>
       updateHp(client, {
         characterId: params.characterId,
         hpChange: params.hpChange,
+        temporaryHitPoints: params.temporaryHitPoints,
       })
   );
 

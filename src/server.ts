@@ -107,6 +107,145 @@ import {
   searchRacialTraits,
 } from "./tools/reference.js";
 
+
+const requiredUnknown = z.custom<unknown>((value) => value !== undefined, {
+  message: "Required field must be provided",
+});
+
+const unknownPayload = z
+  .record(z.string(), z.unknown())
+  .optional()
+  .describe("Additional DDB endpoint payload fields merged into the top-level request body.");
+
+const idLike = z.union([z.coerce.number(), z.string()]);
+
+export const updateHpSchema = {
+  characterId: z.coerce.number().describe("The character ID"),
+  hpChange: z
+    .coerce.number()
+    .describe("HP change (positive for healing, negative for damage)"),
+  temporaryHitPoints: z
+    .coerce.number()
+    .describe("Required DDB temporaryHitPoints value to set/preserve; use 0 when the character has no temp HP"),
+};
+
+export const setCustomValueSchema = {
+  characterId: z.coerce.number(),
+  typeId: z.coerce.number(),
+  value: requiredUnknown.describe("Required DDB custom/value `value` field"),
+  notes: z.string().nullable().optional(),
+  valueId: z.union([z.coerce.number(), z.string()]).nullable().optional(),
+  valueTypeId: z.union([z.coerce.number(), z.string()]).nullable().optional(),
+  contextId: z.union([z.coerce.number(), z.string()]).nullable().optional(),
+  contextTypeId: z.union([z.coerce.number(), z.string()]).nullable().optional(),
+  partyId: z.coerce.number().nullable().optional(),
+};
+
+export const customProficiencySchema = z.discriminatedUnion("operation", [
+  z.object({
+    operation: z.literal("create"),
+    characterId: z.coerce.number().describe("The character ID"),
+    name: z.string().describe("Custom proficiency name"),
+    type: z.coerce.number().describe("Proficiency type: 1 skill, 2 tool, 3 language, 4 armor, 5 weapon"),
+    notes: z.string().nullable().optional(),
+    payload: unknownPayload,
+  }).catchall(z.unknown()),
+  z.object({
+    operation: z.literal("update"),
+    characterId: z.coerce.number().describe("The character ID"),
+    id: z.coerce.number().describe("Custom proficiency mapping ID"),
+    name: z.string().optional().describe("Updated custom proficiency name"),
+    type: z.coerce.number().optional().describe("Proficiency type; include it to avoid DDB resetting the value"),
+    notes: z.string().nullable().optional(),
+    payload: unknownPayload,
+  }).catchall(z.unknown()),
+  z.object({
+    operation: z.literal("delete"),
+    characterId: z.coerce.number().describe("The character ID"),
+    id: z.coerce.number().describe("Custom proficiency mapping ID"),
+    payload: unknownPayload,
+  }).catchall(z.unknown()),
+]);
+
+export const customMovementSchema = z.discriminatedUnion("operation", [
+  z.object({ operation: z.literal("create"), characterId: z.coerce.number(), movementId: z.coerce.number().describe("Movement ID: 1 walk, 2 burrow, 3 climb, 4 fly, 5 swim"), distance: z.coerce.number(), source: z.string().nullable().optional() }),
+  z.object({ operation: z.literal("update"), characterId: z.coerce.number(), movementId: z.coerce.number().describe("Movement ID: 1 walk, 2 burrow, 3 climb, 4 fly, 5 swim"), distance: z.coerce.number(), source: z.string().nullable().optional() }),
+  z.object({ operation: z.literal("delete"), characterId: z.coerce.number(), movementId: z.coerce.number().describe("Movement ID: 1 walk, 2 burrow, 3 climb, 4 fly, 5 swim") }),
+]);
+
+export const customSenseSchema = z.discriminatedUnion("operation", [
+  z.object({ operation: z.literal("create"), characterId: z.coerce.number(), senseId: z.coerce.number().describe("Sense ID: 1 blindsight, 2 darkvision, 3 tremorsense, 4 truesight"), distance: z.coerce.number(), source: z.string().nullable().optional() }),
+  z.object({ operation: z.literal("update"), characterId: z.coerce.number(), senseId: z.coerce.number().describe("Sense ID: 1 blindsight, 2 darkvision, 3 tremorsense, 4 truesight"), distance: z.coerce.number(), source: z.string().nullable().optional() }),
+  z.object({ operation: z.literal("delete"), characterId: z.coerce.number(), senseId: z.coerce.number().describe("Sense ID: 1 blindsight, 2 darkvision, 3 tremorsense, 4 truesight") }),
+]);
+
+export const customActionSchema = z.discriminatedUnion("operation", [
+  z.object({ operation: z.literal("create"), characterId: z.coerce.number(), name: z.string(), actionType: z.coerce.number().describe("Action type: 1 weapon, 2 spell, 3 general"), payload: unknownPayload }).catchall(z.unknown()),
+  z.object({ operation: z.literal("update"), characterId: z.coerce.number(), id: idLike.describe("Custom action mapping ID"), name: z.string().optional(), actionType: z.coerce.number().optional().describe("Action type; include it to avoid DDB nulling the value"), payload: unknownPayload }).catchall(z.unknown()),
+  z.object({ operation: z.literal("delete"), characterId: z.coerce.number(), id: idLike.describe("Custom action mapping ID"), payload: unknownPayload }).catchall(z.unknown()),
+]);
+
+export const decorationSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("backdrop"), characterId: z.coerce.number(), backdropId: idLike.describe("DDB backdrop ID"), payload: unknownPayload }).catchall(z.unknown()),
+  z.object({ kind: z.literal("frame"), characterId: z.coerce.number(), frameId: idLike.describe("DDB frame ID"), payload: unknownPayload }).catchall(z.unknown()),
+  z.object({ kind: z.literal("portrait"), characterId: z.coerce.number(), avatarId: idLike.describe("DDB avatar/portrait ID"), avatarUrl: z.string().optional().describe("DDB avatar URL, when provided by the web app"), payload: unknownPayload }).catchall(z.unknown()),
+  z.object({ kind: z.literal("customPortrait"), characterId: z.coerce.number(), avatarId: idLike.optional().describe("DDB custom avatar ID if already uploaded"), avatarUrl: z.string().optional(), data: z.string().optional().describe("Base64 image data if using the custom portrait upload flow"), payload: unknownPayload }).catchall(z.unknown()),
+  z.object({ kind: z.literal("themeColor"), characterId: z.coerce.number(), themeColorId: idLike.describe("DDB theme color ID"), payload: unknownPayload }).catchall(z.unknown()),
+  z.object({ kind: z.literal("socialImage"), characterId: z.coerce.number(), socialImageId: idLike.describe("DDB social image ID"), payload: unknownPayload }).catchall(z.unknown()),
+]);
+
+export const rollResultSchema = z.discriminatedUnion("operation", [
+  z.object({ operation: z.literal("listGroups"), characterId: z.coerce.number(), componentKey: z.string().optional().describe("Optional DDB roll-result component key, e.g. AbilityManager__Type--1") }).catchall(z.unknown()),
+  z.object({ operation: z.literal("createGroup"), characterId: z.coerce.number(), groupKey: z.string(), componentKey: z.string(), nextGroupKey: z.string().nullable().optional(), rollResults: z.array(z.record(z.string(), z.unknown())).describe("DDB roll result objects with rollKey/nextRollKey/rollTotal/assignedValue/rollValues"), payload: unknownPayload }).catchall(z.unknown()),
+  z.object({ operation: z.literal("updateGroup"), characterId: z.coerce.number(), groupKey: z.string(), componentKey: z.string(), nextGroupKey: z.string().nullable().optional(), rollResults: z.array(z.record(z.string(), z.unknown())).optional(), payload: unknownPayload }).catchall(z.unknown()),
+  z.object({ operation: z.literal("updateGroupOrder"), characterId: z.coerce.number(), groupKey: z.string(), componentKey: z.string(), nextGroupKey: z.string().nullable().optional(), payload: unknownPayload }).catchall(z.unknown()),
+  z.object({ operation: z.literal("deleteGroup"), characterId: z.coerce.number(), groupKey: z.string(), componentKey: z.string(), payload: unknownPayload }).catchall(z.unknown()),
+  z.object({ operation: z.literal("deleteGroups"), characterId: z.coerce.number(), groupKeys: z.array(z.string()).optional(), componentKey: z.string().optional(), payload: unknownPayload }).catchall(z.unknown()),
+  z.object({ operation: z.literal("updateResult"), characterId: z.coerce.number(), rollKey: z.string(), groupKey: z.string().optional(), componentKey: z.string().optional(), rollTotal: z.coerce.number().nullable().optional(), assignedValue: z.coerce.number().nullable().optional(), rollValues: z.array(z.unknown()).optional(), payload: unknownPayload }).catchall(z.unknown()),
+]);
+
+export const characterFeatSchema = z.discriminatedUnion("operation", [
+  z.object({ operation: z.literal("createAdHoc"), characterId: z.coerce.number(), id: z.coerce.number().describe("Feat definition/component ID to add as an ad-hoc feat"), payload: unknownPayload }).catchall(z.unknown()),
+  z.object({ operation: z.literal("deleteAdHoc"), characterId: z.coerce.number(), id: z.coerce.number().describe("Ad-hoc feat definition/component ID to remove"), payload: unknownPayload }).catchall(z.unknown()),
+  z.object({ operation: z.literal("addFromEntity"), characterId: z.coerce.number(), entityId: z.coerce.number().describe("Feat entity ID"), entityTypeId: z.coerce.number().describe("Feat entity type ID"), payload: unknownPayload }).catchall(z.unknown()),
+]);
+
+export const characterInfusionSchema = z.discriminatedUnion("operation", [
+  z.object({ operation: z.literal("listItems"), characterId: z.coerce.number() }),
+  z.object({ operation: z.literal("listKnown"), characterId: z.coerce.number() }),
+  z.object({ operation: z.literal("createKnown"), characterId: z.coerce.number(), choiceKey: z.string(), infusionId: z.coerce.number(), payload: unknownPayload }).catchall(z.unknown()),
+  z.object({ operation: z.literal("updateKnown"), characterId: z.coerce.number(), choiceKey: z.string(), infusionId: z.coerce.number(), itemId: idLike.nullable().optional(), itemTypeId: idLike.nullable().optional(), itemName: z.string().nullable().optional(), payload: unknownPayload }).catchall(z.unknown()),
+  z.object({ operation: z.literal("deleteKnown"), characterId: z.coerce.number(), choiceKey: z.string(), payload: unknownPayload }).catchall(z.unknown()),
+  z.object({ operation: z.literal("addItem"), characterId: z.coerce.number(), choiceKey: z.string(), infusionId: z.coerce.number(), inventoryMappingId: idLike, modifierGroupId: idLike.nullable().optional(), payload: unknownPayload }).catchall(z.unknown()),
+  z.object({ operation: z.literal("deleteItem"), characterId: z.coerce.number(), infusionId: z.coerce.number(), inventoryMappingId: idLike, payload: unknownPayload }).catchall(z.unknown()),
+]);
+
+export const optionalFeatureSchema = z.discriminatedUnion("operation", [
+  z.object({ operation: z.literal("addClassFeature"), characterId: z.coerce.number(), classFeatureId: z.coerce.number(), affectedClassFeatureId: z.coerce.number(), payload: unknownPayload }).catchall(z.unknown()),
+  z.object({ operation: z.literal("updateClassFeature"), characterId: z.coerce.number(), classFeatureId: z.coerce.number(), affectedClassFeatureId: z.coerce.number(), payload: unknownPayload }).catchall(z.unknown()),
+  z.object({ operation: z.literal("deleteClassFeature"), characterId: z.coerce.number(), classFeatureId: z.coerce.number(), payload: unknownPayload }).catchall(z.unknown()),
+  z.object({ operation: z.literal("deleteClassFeatureCollection"), characterId: z.coerce.number(), classFeatureIds: z.array(z.coerce.number()), payload: unknownPayload }).catchall(z.unknown()),
+  z.object({ operation: z.literal("addRacialTrait"), characterId: z.coerce.number(), racialTraitId: z.coerce.number(), affectedRacialTraitId: z.coerce.number(), payload: unknownPayload }).catchall(z.unknown()),
+  z.object({ operation: z.literal("updateRacialTrait"), characterId: z.coerce.number(), racialTraitId: z.coerce.number(), affectedRacialTraitId: z.coerce.number(), payload: unknownPayload }).catchall(z.unknown()),
+  z.object({ operation: z.literal("deleteRacialTrait"), characterId: z.coerce.number(), racialTraitId: z.coerce.number(), payload: unknownPayload }).catchall(z.unknown()),
+  z.object({ operation: z.literal("deleteRacialTraitCollection"), characterId: z.coerce.number(), racialTraitIds: z.array(z.coerce.number()), payload: unknownPayload }).catchall(z.unknown()),
+]);
+
+export const vehicleSchema = z.discriminatedUnion("operation", [
+  z.object({ operation: z.literal("list"), characterId: z.coerce.number() }),
+  z.object({ operation: z.literal("create"), characterId: z.coerce.number(), vehicleId: idLike.describe("DDB vehicle definition ID, often a string such as sjliv"), name: z.string().optional(), payload: unknownPayload }).catchall(z.unknown()),
+  z.object({ operation: z.literal("update"), characterId: z.coerce.number(), id: idLike.describe("Vehicle mapping ID returned by DDB"), payload: unknownPayload }).catchall(z.unknown()),
+  z.object({ operation: z.literal("delete"), characterId: z.coerce.number(), id: idLike.describe("Vehicle mapping ID returned by DDB"), payload: unknownPayload }).catchall(z.unknown()),
+  z.object({ operation: z.literal("setFuel"), characterId: z.coerce.number(), id: idLike.describe("Vehicle mapping ID returned by DDB"), remainingFuel: z.coerce.number().optional(), payload: unknownPayload }).catchall(z.unknown()),
+  z.object({ operation: z.literal("createCondition"), characterId: z.coerce.number(), vehicleMappingId: idLike, conditionId: z.coerce.number(), level: z.coerce.number().optional(), payload: unknownPayload }).catchall(z.unknown()),
+  z.object({ operation: z.literal("updateCondition"), characterId: z.coerce.number(), vehicleMappingId: idLike, conditionId: z.coerce.number(), level: z.coerce.number().optional(), payload: unknownPayload }).catchall(z.unknown()),
+  z.object({ operation: z.literal("deleteCondition"), characterId: z.coerce.number(), vehicleMappingId: idLike, conditionId: z.coerce.number(), payload: unknownPayload }).catchall(z.unknown()),
+  z.object({ operation: z.literal("listComponents"), characterId: z.coerce.number(), vehicleMappingId: idLike }),
+  z.object({ operation: z.literal("createComponent"), characterId: z.coerce.number(), vehicleMappingId: idLike, componentIds: z.array(idLike).describe("DDB vehicle component definition IDs, often strings such as sjliv06c"), payload: unknownPayload }).catchall(z.unknown()),
+  z.object({ operation: z.literal("updateComponent"), characterId: z.coerce.number(), id: idLike.describe("Vehicle component mapping ID returned by DDB"), vehicleMappingId: idLike, componentId: idLike.describe("DDB vehicle component definition ID, often a string such as sjliv06c"), displayOrder: z.coerce.number().optional(), payload: unknownPayload }).catchall(z.unknown()),
+  z.object({ operation: z.literal("updateComponentHp"), characterId: z.coerce.number(), id: idLike.describe("Vehicle component mapping ID returned by DDB"), removedHitPoints: z.coerce.number(), payload: unknownPayload }).catchall(z.unknown()),
+]);
+
 export async function startServer(): Promise<void> {
   // Initialize cache instance
   const cache = new TtlCache<unknown>(60_000); // 60s TTL
@@ -202,22 +341,13 @@ export async function startServer(): Promise<void> {
   // Register character write tools
   server.tool(
     "update_hp",
-    "Update a character's hit points (positive = heal, negative = damage). Optionally set temporary HP.",
-    {
-      characterId: z.coerce.number().describe("The character ID"),
-      hpChange: z
-        .coerce.number()
-        .describe("HP change (positive for healing, negative for damage)"),
-      tempHp: z
-        .coerce.number()
-        .optional()
-        .describe("Set temporary hit points to this value"),
-    },
+    "Update a character's hit points. Sends DDB `removedHitPoints` plus required `temporaryHitPoints`; temporaryHitPoints is an absolute value, not a delta.",
+    updateHpSchema,
     async (params) =>
       updateHp(client, {
         characterId: params.characterId,
         hpChange: params.hpChange,
-        tempHp: params.tempHp,
+        temporaryHitPoints: params.temporaryHitPoints,
       })
   );
 
@@ -503,17 +633,7 @@ export async function startServer(): Promise<void> {
   server.tool(
     "set_custom_value",
     "Set a DDB custom value. Entity-scoped values may include valueId/valueTypeId/contextId/contextTypeId/partyId.",
-    z.object({
-      characterId: z.coerce.number(),
-      typeId: z.coerce.number(),
-      value: z.unknown(),
-      notes: z.string().nullable().optional(),
-      valueId: z.union([z.coerce.number(), z.string()]).nullable().optional(),
-      valueTypeId: z.union([z.coerce.number(), z.string()]).nullable().optional(),
-      contextId: z.union([z.coerce.number(), z.string()]).nullable().optional(),
-      contextTypeId: z.union([z.coerce.number(), z.string()]).nullable().optional(),
-      partyId: z.coerce.number().nullable().optional(),
-    }).shape,
+    setCustomValueSchema,
     async (params) => setCustomValue(client, params)
   );
 
@@ -546,43 +666,29 @@ export async function startServer(): Promise<void> {
     async (params) => deleteCustomEntityValues(client, params)
   );
 
-  server.tool(
+  server.registerTool(
     "manage_custom_proficiency",
-    "Create, update, or delete a custom proficiency. Types: 1 skill, 2 tool, 3 language, 4 armor, 5 weapon. Include type on update to avoid DDB resetting it.",
-    z.object({
-      operation: z.enum(["create", "update", "delete"]),
-      characterId: z.coerce.number(),
-      id: z.coerce.number().optional(),
-      name: z.string().optional(),
-      type: z.coerce.number().optional(),
-      notes: z.string().nullable().optional(),
-      payload: z.record(z.string(), z.unknown()).optional().describe("Additional endpoint payload fields merged before top-level fields."),
-    }).catchall(z.unknown()).shape,
+    {
+      description: "Create, update, or delete a custom proficiency. Schema is operation-specific: create requires name/type; update/delete require id. Types: 1 skill, 2 tool, 3 language, 4 armor, 5 weapon.",
+      inputSchema: customProficiencySchema,
+    },
     async (params) => manageCustomProficiency(client, params)
   );
 
-  server.tool(
+  server.registerTool(
     "manage_custom_movement",
-    "Create/update/delete a custom movement speed. Movement IDs: 1 walk, 2 burrow, 3 climb, 4 fly, 5 swim.",
     {
-      operation: z.enum(["create", "update", "delete"]),
-      characterId: z.coerce.number(),
-      movementId: z.coerce.number(),
-      distance: z.coerce.number().nullable().optional(),
-      source: z.string().nullable().optional(),
+      description: "Create/update/delete a custom movement speed. Schema is operation-specific: create/update require distance; delete does not. Movement IDs: 1 walk, 2 burrow, 3 climb, 4 fly, 5 swim.",
+      inputSchema: customMovementSchema,
     },
     async (params) => manageCustomMovement(client, params)
   );
 
-  server.tool(
+  server.registerTool(
     "manage_custom_sense",
-    "Create/update/delete a custom sense. Sense IDs: 1 blindsight, 2 darkvision, 3 tremorsense, 4 truesight.",
     {
-      operation: z.enum(["create", "update", "delete"]),
-      characterId: z.coerce.number(),
-      senseId: z.coerce.number(),
-      distance: z.coerce.number().nullable().optional(),
-      source: z.string().nullable().optional(),
+      description: "Create/update/delete a custom sense. Schema is operation-specific: create/update require distance; delete does not. Sense IDs: 1 blindsight, 2 darkvision, 3 tremorsense, 4 truesight.",
+      inputSchema: customSenseSchema,
     },
     async (params) => manageCustomSense(client, params)
   );
@@ -601,72 +707,57 @@ export async function startServer(): Promise<void> {
     async (params) => manageCustomDefenseAdjustment(client, params)
   );
 
-  server.tool(
+  server.registerTool(
     "manage_custom_action",
-    "Create/update/delete a custom action. actionType: 1 weapon, 2 spell, 3 general. Include actionType on update to avoid DDB nulling it.",
-    z.object({
-      operation: z.enum(["create", "update", "delete"]),
-      characterId: z.coerce.number(),
-      id: z.union([z.coerce.number(), z.string()]).optional(),
-      name: z.string().optional(),
-      actionType: z.coerce.number().optional(),
-      payload: z.record(z.string(), z.unknown()).optional().describe("Additional endpoint payload fields merged before top-level fields."),
-    }).catchall(z.unknown()).shape,
+    {
+      description: "Create/update/delete a custom action. Schema is operation-specific: create requires name/actionType; update/delete require id. actionType: 1 weapon, 2 spell, 3 general.",
+      inputSchema: customActionSchema,
+    },
     async (params) => manageCustomAction(client, params)
   );
 
-  server.tool(
+  server.registerTool(
     "set_character_decoration",
-    "Set decoration fields: backdrop, frame, portrait, customPortrait, themeColor, or socialImage. Custom portrait uploads accept JPEG/PNG/GIF up to 3MB.",
-    z.object({
-      characterId: z.coerce.number(),
-      kind: z.enum(["backdrop", "frame", "portrait", "customPortrait", "themeColor", "socialImage"]),
-      payload: z.record(z.string(), z.unknown()).optional().describe("Additional endpoint payload fields merged before top-level fields."),
-    }).catchall(z.unknown()).shape,
+    {
+      description: "Set DDB decoration fields with kind-specific schema: backdropId, frameId, avatarId/avatarUrl, themeColorId, or socialImageId. Custom portrait uploads accept JPEG/PNG/GIF up to 3MB when using DDB web-app payload fields.",
+      inputSchema: decorationSchema,
+    },
     async (params) => setCharacterDecoration(client, params)
   );
 
-  server.tool(
+  server.registerTool(
     "manage_roll_result",
-    "Manage DDB roll result groups/results. Operations: listGroups, createGroup, updateGroup, updateGroupOrder, deleteGroup, deleteGroups, updateResult.",
-    z.object({
-      operation: z.enum(["listGroups", "createGroup", "updateGroup", "updateGroupOrder", "deleteGroup", "deleteGroups", "updateResult"]),
-      characterId: z.coerce.number(),
-      payload: z.record(z.string(), z.unknown()).optional().describe("Additional endpoint payload fields merged before top-level fields."),
-    }).catchall(z.unknown()).shape,
+    {
+      description: "Manage DDB roll-result groups/results with operation-specific fields: componentKey, groupKey, rollKey, nextGroupKey, and rollResults.",
+      inputSchema: rollResultSchema,
+    },
     async (params) => manageRollResult(client, params)
   );
 
-  server.tool(
+  server.registerTool(
     "manage_character_feat",
-    "Manage DDB feat endpoints: createAdHoc, deleteAdHoc, addFromEntity. Payloads must match the DDB web app fields for that feat flow.",
-    z.object({
-      operation: z.enum(["createAdHoc", "deleteAdHoc", "addFromEntity"]),
-      characterId: z.coerce.number(),
-      payload: z.record(z.string(), z.unknown()).optional().describe("Additional endpoint payload fields merged before top-level fields."),
-    }).catchall(z.unknown()).shape,
+    {
+      description: "Manage DDB feat endpoints. createAdHoc/deleteAdHoc require id; addFromEntity requires entityId and entityTypeId. Extra DDB fields may be supplied top-level or under payload.",
+      inputSchema: characterFeatSchema,
+    },
     async (params) => manageCharacterFeat(client, params)
   );
 
-  server.tool(
+  server.registerTool(
     "manage_character_infusion",
-    "Manage DDB infusion endpoints: listItems, addItem, deleteItem, listKnown, createKnown, updateKnown, deleteKnown.",
-    z.object({
-      operation: z.enum(["listItems", "addItem", "deleteItem", "listKnown", "createKnown", "updateKnown", "deleteKnown"]),
-      characterId: z.coerce.number(),
-      payload: z.record(z.string(), z.unknown()).optional().describe("Additional endpoint payload fields merged before top-level fields."),
-    }).catchall(z.unknown()).shape,
+    {
+      description: "Manage DDB infusion endpoints with operation-specific schema: known infusions use choiceKey/infusionId; item infusions use inventoryMappingId.",
+      inputSchema: characterInfusionSchema,
+    },
     async (params) => manageCharacterInfusion(client, params)
   );
 
-  server.tool(
+  server.registerTool(
     "manage_optional_feature",
-    "Manage DDB optional class feature/origin endpoints.",
-    z.object({
-      operation: z.enum(["addClassFeature", "updateClassFeature", "deleteClassFeature", "deleteClassFeatureCollection", "addRacialTrait", "updateRacialTrait", "deleteRacialTrait", "deleteRacialTraitCollection"]),
-      characterId: z.coerce.number(),
-      payload: z.record(z.string(), z.unknown()).optional().describe("Additional endpoint payload fields merged before top-level fields."),
-    }).catchall(z.unknown()).shape,
+    {
+      description: "Manage DDB optional class feature/racial trait endpoints with operation-specific required fields such as classFeatureId, affectedClassFeatureId, racialTraitId, and collection ID arrays.",
+      inputSchema: optionalFeatureSchema,
+    },
     async (params) => manageOptionalFeature(client, params)
   );
 
@@ -681,21 +772,12 @@ export async function startServer(): Promise<void> {
     async (params) => managePremadeInfo(client, params)
   );
 
-  server.tool(
+  server.registerTool(
     "manage_vehicle",
-    "Manage DDB vehicle endpoints: list/create/update/delete, fuel, conditions, and components. Component operations require characterId plus vehicleMappingId/componentIds or component mapping id.",
-    z.object({
-      operation: z.enum(["list", "create", "update", "delete", "setFuel", "createCondition", "updateCondition", "deleteCondition", "listComponents", "createComponent", "updateComponent", "updateComponentHp"]),
-      characterId: z.coerce.number().optional(),
-      vehicleMappingId: z.union([z.coerce.number(), z.string()]).optional(),
-      id: z.union([z.coerce.number(), z.string()]).optional(),
-      vehicleId: z.union([z.coerce.number(), z.string()]).optional().describe("DDB vehicle definition ID, often a string such as sjliv."),
-      componentId: z.union([z.coerce.number(), z.string()]).optional().describe("DDB vehicle component definition ID, often a string such as sjliv06c."),
-      componentIds: z.array(z.union([z.coerce.number(), z.string()])).optional(),
-      conditionId: z.coerce.number().optional(),
-      removedHitPoints: z.coerce.number().optional(),
-      payload: z.record(z.string(), z.unknown()).optional().describe("Additional endpoint payload fields merged before top-level fields."),
-    }).catchall(z.unknown()).shape,
+    {
+      description: "Manage DDB vehicle endpoints with operation-specific schema. Mapping IDs are returned by DDB; definition IDs are often strings such as sjliv and sjliv06c.",
+      inputSchema: vehicleSchema,
+    },
     async (params) => manageVehicle(client, params)
   );
 

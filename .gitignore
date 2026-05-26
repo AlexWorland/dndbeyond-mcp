@@ -21,6 +21,9 @@ setup/captured-requests.json
 *.swp
 *.swo
 
+# Local agent state
+.bolt/
+
 # OS
 .DS_Store
 Thumbs.db
