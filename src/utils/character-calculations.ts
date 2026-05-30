@@ -62,11 +62,85 @@ export function computeLevel(char: DdbCharacter): number {
   return char.classes.reduce((sum, cls) => sum + cls.level, 0);
 }
 
+type HitPointModifier = DdbModifier & {
+  fixedValue?: number | null;
+  dice?: { diceCount?: number | null } | null;
+};
+
+function hitPointModifierValue(mod: HitPointModifier): number {
+  return mod.value ?? mod.fixedValue ?? 0;
+}
+
+function iterHitPointModifiers(
+  modifiers: Record<string, DdbModifier[]>,
+  visit: (mod: HitPointModifier) => void
+): void {
+  for (const list of Object.values(modifiers)) {
+    if (!Array.isArray(list)) continue;
+    for (const mod of list) visit(mod as HitPointModifier);
+  }
+}
+
+/** True when DDB stores class hit-die totals in baseHitPoints without CON or per-level bonuses. */
+export function usesDeferredHitPointBonuses(
+  modifiers: Record<string, DdbModifier[]> | undefined
+): boolean {
+  if (!modifiers) return false;
+  let found = false;
+  iterHitPointModifiers(modifiers, (mod) => {
+    if (mod.type === "bonus" && mod.subType === "hit-points-per-level" && hitPointModifierValue(mod) !== 0) {
+      found = true;
+    }
+  });
+  return found;
+}
+
+function sumPerLevelHitPointBonuses(char: DdbCharacter): number {
+  const level = computeLevel(char);
+  let total = 0;
+  iterHitPointModifiers(char.modifiers ?? {}, (mod) => {
+    if (mod.type === "bonus" && mod.subType === "hit-points-per-level") {
+      total += hitPointModifierValue(mod) * level;
+    }
+  });
+  return total;
+}
+
+/** Flat max-HP bonuses from feats/items; excludes dice-based healing like potions. */
+function sumFlatMaxHitPointBonuses(modifiers: Record<string, DdbModifier[]> | undefined): number {
+  let total = 0;
+  iterHitPointModifiers(modifiers ?? {}, (mod) => {
+    if (mod.type !== "bonus" || mod.subType !== "hit-points") return;
+    if (mod.dice?.diceCount) return;
+    total += hitPointModifierValue(mod);
+  });
+  return total;
+}
+
 export function calculateMaxHp(char: DdbCharacter): number {
-  const base = char.baseHitPoints;
+  if (char.overrideHitPoints != null) return char.overrideHitPoints;
+
+  const base = char.baseHitPoints ?? 0;
   const bonus = char.bonusHitPoints ?? 0;
-  const override = char.overrideHitPoints;
-  return override ?? (base + bonus);
+  let max = base + bonus;
+
+  if (usesDeferredHitPointBonuses(char.modifiers)) {
+    const level = computeLevel(char);
+    const conScore = computeFinalAbilityScore(
+      char.stats,
+      char.bonusStats,
+      char.overrideStats,
+      char.modifiers,
+      3
+    );
+    const conMod = Math.floor((conScore - 10) / 2);
+    max += conMod * level;
+    max += sumPerLevelHitPointBonuses(char);
+  }
+
+  max += sumFlatMaxHitPointBonuses(char.modifiers);
+
+  return max;
 }
 
 export function calculateCurrentHp(char: DdbCharacter): number {
