@@ -106,7 +106,7 @@ function sumPerLevelHitPointBonuses(char: DdbCharacter): number {
   return total;
 }
 
-/** Flat max-HP bonuses from feats/items; excludes dice-based healing like potions. */
+/** Flat hit-points bonuses from all modifier categories; excludes dice-based effects like potions. */
 function sumFlatMaxHitPointBonuses(modifiers: Record<string, DdbModifier[]> | undefined): number {
   let total = 0;
   iterHitPointModifiers(modifiers ?? {}, (mod) => {
