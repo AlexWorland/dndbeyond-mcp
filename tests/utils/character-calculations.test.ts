@@ -5,6 +5,7 @@ import {
   calculateAc,
   computeLevel,
   calculateMaxHp,
+  usesDeferredHitPointBonuses,
   calculateCurrentHp,
 } from "../../src/utils/character-calculations.js";
 import type { DdbCharacter, DdbModifier } from "../../src/types/character.js";
@@ -424,6 +425,57 @@ describe("calculateMaxHp", () => {
 
     const result = calculateMaxHp(char);
     expect(result).toBe(42);
+  });
+
+  it("should add CON and per-level bonuses when DDB defers them (Hill Dwarf cleric pattern)", () => {
+    const char = {
+      baseHitPoints: 14,
+      bonusHitPoints: null,
+      overrideHitPoints: null,
+      removedHitPoints: 0,
+      stats: [{ id: 3, value: 16 }],
+      bonusStats: [{ id: 3, value: null }],
+      overrideStats: [{ id: 3, value: null }],
+      classes: [{ level: 3 }],
+      modifiers: {
+        race: [
+          {
+            type: "bonus",
+            subType: "hit-points-per-level",
+            value: 1,
+            fixedValue: 1,
+          },
+        ],
+        item: [
+          {
+            type: "bonus",
+            subType: "hit-points",
+            value: null,
+            fixedValue: 2,
+            dice: { diceCount: 2, diceValue: 4, diceString: "2d4 + 2" },
+          },
+        ],
+      },
+    } as unknown as DdbCharacter;
+
+    expect(usesDeferredHitPointBonuses(char.modifiers)).toBe(true);
+    expect(calculateMaxHp(char)).toBe(26); // 14 + (3 CON × 3 levels) + (1 dwarf × 3 levels)
+  });
+
+  it("should not double-count CON when no per-level HP modifiers are present", () => {
+    const char = {
+      baseHitPoints: 22,
+      bonusHitPoints: null,
+      overrideHitPoints: null,
+      stats: [{ id: 3, value: 18 }],
+      bonusStats: [{ id: 3, value: null }],
+      overrideStats: [{ id: 3, value: null }],
+      classes: [{ level: 3 }],
+      modifiers: {},
+    } as unknown as DdbCharacter;
+
+    expect(usesDeferredHitPointBonuses(char.modifiers)).toBe(false);
+    expect(calculateMaxHp(char)).toBe(22);
   });
 });
 
