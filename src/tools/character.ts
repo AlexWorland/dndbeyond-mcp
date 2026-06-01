@@ -1770,6 +1770,14 @@ interface UpdateDeathSavesParams {
   count: number;
 }
 
+function formatDeathSaveCount(type: "success" | "failure", count: number): string {
+  const label =
+    type === "success"
+      ? count === 1 ? "success" : "successes"
+      : count === 1 ? "failure" : "failures";
+  return `${count} ${label}`;
+}
+
 export async function updateDeathSaves(
   client: DdbClient,
   params: UpdateDeathSavesParams
@@ -1802,8 +1810,8 @@ export async function updateDeathSaves(
     60_000
   );
   const body = {
-    successCount: params.type === "success" ? params.count : (character.deathSaves.successCount ?? 0),
-    failCount: params.type === "failure" ? params.count : (character.deathSaves.failCount ?? 0),
+    successCount: params.type === "success" ? params.count : (character.deathSaves?.successCount ?? 0),
+    failCount: params.type === "failure" ? params.count : (character.deathSaves?.failCount ?? 0),
   };
 
   await client.put(
@@ -1812,11 +1820,32 @@ export async function updateDeathSaves(
     [`character:${params.characterId}`]
   );
 
+  const updated = await client.get<DdbCharacter>(
+    ENDPOINTS.character.get(params.characterId),
+    `character:${params.characterId}`,
+    60_000
+  );
+  const persistedCount =
+    params.type === "success"
+      ? updated.deathSaves?.successCount
+      : updated.deathSaves?.failCount;
+
+  if (persistedCount !== params.count) {
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Death save update was not applied by D&D Beyond. Character ID: ${params.characterId}. Requested ${formatDeathSaveCount(params.type, params.count)}, but the sheet still reports ${persistedCount ?? "none"}.`,
+        },
+      ],
+    };
+  }
+
   return {
     content: [
       {
         type: "text",
-        text: `Updated death saves: ${params.count} ${params.type}${params.count === 1 ? StringUtils.EMPTY : "es"}.`,
+        text: `Updated death saves: ${formatDeathSaveCount(params.type, params.count)}.`,
       },
     ],
   };

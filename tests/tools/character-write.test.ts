@@ -240,6 +240,10 @@ describe("updateDeathSaves", () => {
   });
 
   it("should update success death saves", async () => {
+    vi.mocked(mockClient.get)
+      .mockResolvedValueOnce({ deathSaves: { successCount: 0, failCount: 0 } } as DdbCharacter)
+      .mockResolvedValueOnce({ deathSaves: { successCount: 2, failCount: 0 } } as DdbCharacter);
+
     const result = await updateDeathSaves(mockClient, {
       characterId: 123,
       type: "success",
@@ -255,18 +259,42 @@ describe("updateDeathSaves", () => {
   });
 
   it("should update failure death saves", async () => {
+    vi.mocked(mockClient.get)
+      .mockResolvedValueOnce({ deathSaves: { successCount: 0, failCount: 0 } } as DdbCharacter)
+      .mockResolvedValueOnce({ deathSaves: { successCount: 0, failCount: 2 } } as DdbCharacter);
+
     const result = await updateDeathSaves(mockClient, {
       characterId: 123,
       type: "failure",
+      count: 2,
+    });
+
+    expect(mockClient.put).toHaveBeenCalledWith(
+      expect.stringContaining("/character/v5/life/death-saves"),
+      { characterId: 123, successCount: 0, failCount: 2 },
+      ["character:123"]
+    );
+    expect(result.content[0].text).toContain("Updated death saves: 2 failures");
+  });
+
+  it("should report when D&D Beyond accepts the request but does not persist the death saves", async () => {
+    vi.mocked(mockClient.get)
+      .mockResolvedValueOnce({ deathSaves: { successCount: null, failCount: null } } as DdbCharacter)
+      .mockResolvedValueOnce({ deathSaves: { successCount: null, failCount: null } } as DdbCharacter);
+
+    const result = await updateDeathSaves(mockClient, {
+      characterId: 123,
+      type: "success",
       count: 1,
     });
 
     expect(mockClient.put).toHaveBeenCalledWith(
       expect.stringContaining("/character/v5/life/death-saves"),
-      { characterId: 123, successCount: 0, failCount: 1 },
+      { characterId: 123, successCount: 1, failCount: 0 },
       ["character:123"]
     );
-    expect(result.content[0].text).toContain("Updated death saves: 1 failure");
+    expect(result.content[0].text).toContain("Death save update was not applied by D&D Beyond");
+    expect(result.content[0].text).toContain("Requested 1 success");
   });
 
   it("should reject invalid type", async () => {
