@@ -18,6 +18,10 @@ export interface DdbCharacter {
   lifestyleId: number;
   currencies: DdbCurrencies;
   spells: DdbSpellsContainer;
+  classSpells?: Array<{
+    characterClassId: number;
+    spells: DdbSpell[];
+  }>;
   inventory: DdbInventoryItem[];
   deathSaves: DdbDeathSaves;
   traits: DdbTraits;

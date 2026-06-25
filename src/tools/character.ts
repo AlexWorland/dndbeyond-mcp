@@ -56,26 +56,24 @@ function formatHp(char: DdbCharacter): string {
 }
 
 function formatSpells(char: DdbCharacter): string {
-  const allSpells = getAllSpells(char);
+  const available = getAvailableSpells(char);
+  if (available.length === 0) return StringUtils.EMPTY;
 
-  if (allSpells.length === 0) return StringUtils.EMPTY;
-
-  const prepared = allSpells.filter((s) => s.prepared || s.alwaysPrepared);
-  const preparedByLevel = prepared.reduce((acc, spell) => {
+  const byLevel = available.reduce((acc, spell) => {
     const level = spell.definition.level;
     if (!acc[level]) acc[level] = [];
-    acc[level].push(spell.definition.name);
+    if (!acc[level].includes(spell.definition.name)) acc[level].push(spell.definition.name);
     return acc;
   }, {} as Record<number, string[]>);
 
-  const lines = Object.entries(preparedByLevel)
+  const lines = Object.entries(byLevel)
     .sort(([a], [b]) => Number(a) - Number(b))
     .map(([level, spells]) => {
       const levelLabel = level === "0" ? "Cantrips" : `Level ${level}`;
       return `  ${levelLabel}: ${spells.join(", ")}`;
     });
 
-  return `\nPrepared Spells:\n${lines.join("\n")}`;
+  return `\nSpells:\n${lines.join("\n")}`;
 }
 
 function formatInventory(char: DdbCharacter): string {
@@ -90,12 +88,40 @@ function formatInventory(char: DdbCharacter): string {
   return `\nEquipped Items:\n${items.join("\n")}`;
 }
 
+// Returns the spells the character currently has access to (prepared + cantrips for prepared
+// casters; all known spells for known casters; all feature-granted spells unconditionally).
+function getAvailableSpells(char: DdbCharacter): DdbSpell[] {
+  const result: DdbSpell[] = [];
+  const seen = new Set<string>();
+
+  const add = (spell: DdbSpell) => {
+    const key = `${spell.definition.name}:${spell.definition.level}`;
+    if (!seen.has(key)) { seen.add(key); result.push(spell); }
+  };
+
+  for (const group of char.classSpells ?? []) {
+    const isPreparedCaster = group.spells.some((s) => s.prepared || s.alwaysPrepared);
+    for (const spell of group.spells) {
+      if (!isPreparedCaster || spell.prepared || spell.alwaysPrepared || spell.definition.level === 0) {
+        add(spell);
+      }
+    }
+  }
+
+  for (const list of [char.spells.class, char.spells.race, char.spells.background, char.spells.item, char.spells.feat]) {
+    for (const spell of list ?? []) add(spell);
+  }
+
+  return result;
+}
+
 // ============================================================================
 // UTILITY FUNCTIONS
 // ============================================================================
 
 function getAllSpells(char: DdbCharacter): DdbSpell[] {
   return [
+    ...(char.classSpells ?? []).flatMap((g) => g.spells),
     ...(char.spells.class ?? []),
     ...(char.spells.race ?? []),
     ...(char.spells.background ?? []),
@@ -819,8 +845,7 @@ function formatCharacterFull(char: DdbCharacter): string {
   const definitionSections: string[] = [];
 
   // Spells
-  const allSpells = getAllSpells(char);
-  const preparedSpells = allSpells.filter((s) => s.prepared || s.alwaysPrepared);
+  const preparedSpells = getAvailableSpells(char);
   if (preparedSpells.length > 0) {
     const spellDefs = preparedSpells
       .sort((a, b) => a.definition.level - b.definition.level || a.definition.name.localeCompare(b.definition.name))

@@ -1,7 +1,7 @@
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { DdbClient } from "../api/client.js";
 import { ENDPOINTS } from "../api/endpoints.js";
-import type { DdbCharacter } from "../types/character.js";
+import type { DdbCharacter, DdbSpell } from "../types/character.js";
 import type { DdbCampaign, DdbCampaignCharacter2 } from "../types/api.js";
 import { HttpError } from "../resilience/index.js";
 import { ABILITY_NAMES, calculateAbilityModifier, computeFinalAbilityScore, computeLevel, calculateMaxHp, calculateCurrentHp, calculateAc } from "../utils/character-calculations.js";
@@ -51,32 +51,39 @@ function formatCharacter(char: DdbCharacter): string {
 }
 
 function formatSpellList(char: DdbCharacter): string {
-  const allSpells = [
-    ...(char.spells.class ?? []),
-    ...(char.spells.race ?? []),
-    ...(char.spells.background ?? []),
-    ...(char.spells.item ?? []),
-    ...(char.spells.feat ?? []),
-  ];
+  const spellsByLevel: Record<number, Set<string>> = {};
 
-  if (allSpells.length === 0) return "No spells available.";
-
-  const prepared = allSpells.filter((s) => s.prepared || s.alwaysPrepared);
-  const preparedByLevel = prepared.reduce((acc, spell) => {
+  const addSpell = (spell: DdbSpell) => {
     const level = spell.definition.level;
-    if (!acc[level]) acc[level] = [];
-    acc[level].push(spell.definition.name);
-    return acc;
-  }, {} as Record<number, string[]>);
+    if (!spellsByLevel[level]) spellsByLevel[level] = new Set();
+    spellsByLevel[level].add(spell.definition.name);
+  };
+
+  for (const group of char.classSpells ?? []) {
+    const isPreparedCaster = group.spells.some((s) => s.prepared || s.alwaysPrepared);
+    for (const spell of group.spells) {
+      if (!isPreparedCaster || spell.prepared || spell.alwaysPrepared || spell.definition.level === 0) {
+        addSpell(spell);
+      }
+    }
+  }
+
+  for (const list of [char.spells.class, char.spells.race, char.spells.background, char.spells.item, char.spells.feat]) {
+    for (const spell of list ?? []) {
+      addSpell(spell);
+    }
+  }
+
+  if (Object.keys(spellsByLevel).length === 0) return "No spells available.";
 
   const lines = [
-    `Prepared Spells for ${char.name}:`,
+    `Spells for ${char.name}:`,
     "",
-    ...Object.entries(preparedByLevel)
+    ...Object.entries(spellsByLevel)
       .sort(([a], [b]) => Number(a) - Number(b))
       .map(([level, spells]) => {
         const levelLabel = level === "0" ? "Cantrips" : `Level ${level}`;
-        return `${levelLabel}:\n  ${spells.join(", ")}`;
+        return `${levelLabel}:\n  ${[...spells].join(", ")}`;
       }),
   ];
 
