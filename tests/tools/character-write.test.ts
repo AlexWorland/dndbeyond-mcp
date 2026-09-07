@@ -105,7 +105,7 @@ describe("updateHp", () => {
 
     expect(mockClient.put).toHaveBeenCalledWith(
       expect.stringContaining("/character/v5/life/hp/damage-taken"),
-      { characterId: 123, removedHitPoints: 0 },
+      { characterId: 123, removedHitPoints: 0, temporaryHitPoints: 0 },
       ["character:123"]
     );
     expect(result.content[0].text).toContain("Healed Test Character for 10 HP");
@@ -119,7 +119,7 @@ describe("updateHp", () => {
 
     expect(mockClient.put).toHaveBeenCalledWith(
       expect.stringContaining("/character/v5/life/hp/damage-taken"),
-      { characterId: 123, removedHitPoints: 15 },
+      { characterId: 123, removedHitPoints: 15, temporaryHitPoints: 0 },
       ["character:123"]
     );
     expect(result.content[0].text).toContain("Damaged Test Character for 5 HP");
@@ -133,7 +133,7 @@ describe("updateHp", () => {
 
     expect(mockClient.put).toHaveBeenCalledWith(
       expect.anything(),
-      { characterId: 123, removedHitPoints: 45 },
+      { characterId: 123, removedHitPoints: 45, temporaryHitPoints: 0 },
       expect.anything()
     );
   });
@@ -403,7 +403,7 @@ describe("updateHp with temporary HP", () => {
     expect(result.content[0].text).toContain("(10 temp HP)");
   });
 
-  it("should not include temporaryHitPoints when tempHp is undefined", async () => {
+  it("should default temporaryHitPoints to the character's current value when tempHp is undefined", async () => {
     await updateHp(mockClient, {
       characterId: 123,
       hpChange: 5,
@@ -411,7 +411,7 @@ describe("updateHp with temporary HP", () => {
 
     expect(mockClient.put).toHaveBeenCalledWith(
       expect.stringContaining("/character/v5/life/hp/damage-taken"),
-      { characterId: 123, removedHitPoints: 5 },
+      { characterId: 123, removedHitPoints: 5, temporaryHitPoints: mockCharacter.temporaryHitPoints },
       ["character:123"]
     );
   });

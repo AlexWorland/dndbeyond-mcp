@@ -1044,24 +1044,34 @@ export async function listCharacters(
 
   const characterDetails = await Promise.all(
     allCharacters.map(async (char) => {
-      const details = await client.get<DdbCharacter>(
-        ENDPOINTS.character.get(char.id),
-        `character:${char.id}`,
-        60_000
-      );
-      return {
-        name: details.name,
-        race: details.race.fullName,
-        classes: formatClasses(details),
-        level: computeLevel(details),
-        campaign: char.campaignName,
-      };
+      try {
+        const details = await client.get<DdbCharacter>(
+          ENDPOINTS.character.get(char.id),
+          `character:${char.id}`,
+          60_000
+        );
+        return {
+          name: details.name,
+          race: details.race.fullName,
+          classes: formatClasses(details),
+          level: computeLevel(details),
+          campaign: char.campaignName,
+        };
+      } catch {
+        // Not accessible (e.g. another player's private character in a shared campaign)
+        return {
+          name: char.name,
+          campaign: char.campaignName,
+          inaccessible: true as const,
+        };
+      }
     })
   );
 
-  const lines = characterDetails.map(
-    (char) =>
-      `${char.name} - ${char.race} ${char.classes} (Level ${char.level}) - ${char.campaign}`
+  const lines = characterDetails.map((char) =>
+    "inaccessible" in char
+      ? `${char.name} - (details not accessible) - ${char.campaign}`
+      : `${char.name} - ${char.race} ${char.classes} (Level ${char.level}) - ${char.campaign}`
   );
 
   return {
@@ -1143,14 +1153,11 @@ export async function updateHp(
     )
   );
 
-  const putBody: { characterId: number; removedHitPoints: number; temporaryHitPoints?: number } = {
+  const putBody: { characterId: number; removedHitPoints: number; temporaryHitPoints: number } = {
     characterId: params.characterId,
     removedHitPoints: newRemovedHp,
+    temporaryHitPoints: params.tempHp ?? character.temporaryHitPoints,
   };
-
-  if (params.tempHp !== undefined) {
-    putBody.temporaryHitPoints = params.tempHp;
-  }
 
   await client.put(
     ENDPOINTS.character.updateHp(),

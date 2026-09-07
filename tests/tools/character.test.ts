@@ -3,6 +3,7 @@ import { getCharacter, listCharacters } from "../../src/tools/character.js";
 import type { DdbClient } from "../../src/api/client.js";
 import type { DdbCharacter } from "../../src/types/character.js";
 import type { DdbCampaign } from "../../src/types/api.js";
+import { HttpError } from "../../src/resilience/index.js";
 
 // Extended mock character for testing detail levels
 function createDetailedMockCharacter(): DdbCharacter {
@@ -426,5 +427,22 @@ describe("listCharacters", () => {
 
     expect(result.content).toHaveLength(1);
     expect(result.content[0].text).toBe("No characters found.");
+  });
+
+  it("should skip characters whose details are inaccessible instead of failing the whole list", async () => {
+    const client = createMockClient();
+    const otherPlayerChar = { id: 67890, name: "Bandit Queen", userId: 3, userName: "player2", avatarUrl: "", characterStatus: 1, isAssigned: true };
+
+    vi.mocked(client.get)
+      .mockResolvedValueOnce(mockCampaigns) // campaign list
+      .mockResolvedValueOnce([mockCampaignCharacters[0], otherPlayerChar]) // characters for campaign 999
+      .mockResolvedValueOnce(mockCharacter) // Thorin's details succeed
+      .mockRejectedValueOnce(new HttpError("D&D Beyond API error: 403 Forbidden", 403)); // Bandit Queen's details are private
+
+    const result = await listCharacters(client);
+    const text = result.content[0].text;
+
+    expect(text).toContain("Thorin Ironforge - Mountain Dwarf Fighter (Battle Master) 5 (Level 5) - Lost Mines of Phandelver");
+    expect(text).toContain("Bandit Queen - (details not accessible) - Lost Mines of Phandelver");
   });
 });
