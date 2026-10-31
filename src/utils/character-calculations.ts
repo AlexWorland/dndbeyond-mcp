@@ -7,6 +7,7 @@ import type {
   DdbCharacter,
   DdbAbilityScore,
   DdbModifier,
+  DdbSpell,
 } from "../types/character.js";
 
 export const ABILITY_NAMES = ["STR", "DEX", "CON", "INT", "WIS", "CHA"];
@@ -150,4 +151,41 @@ export function calculateAc(char: DdbCharacter): number {
   finalAc += acBonus;
 
   return finalAc;
+}
+
+/**
+ * Collect every spell attached to the character.
+ *
+ * DDB v5 moved class spells out of `spells.class` and into `classSpells`, grouped by
+ * class. `spells.class` now only contains always-prepared grants (e.g. a subclass's
+ * "always known" spells), so both shapes have to be merged. Duplicates are dropped by
+ * spell name.
+ */
+export function collectSpells(char: DdbCharacter): DdbSpell[] {
+  const all: DdbSpell[] = [
+    ...(char.classSpells ?? []).flatMap((group) => group.spells ?? []),
+    ...(char.spells?.class ?? []),
+    ...(char.spells?.race ?? []),
+    ...(char.spells?.background ?? []),
+    ...(char.spells?.item ?? []),
+    ...(char.spells?.feat ?? []),
+  ];
+
+  const seen = new Set<string>();
+  return all.filter((spell) => {
+    const name = spell.definition?.name;
+    if (!name) return true;
+    if (seen.has(name)) return false;
+    seen.add(name);
+    return true;
+  });
+}
+
+/**
+ * Whether the sheet lists a spell as castable. DDB marks true "prepared" casters with
+ * `prepared`, granted spells with `alwaysPrepared`, and known casters (bard, sorcerer,
+ * warlock) only with `countsAsKnownSpell`.
+ */
+export function isCastableSpell(spell: DdbSpell): boolean {
+  return Boolean(spell.prepared || spell.alwaysPrepared || spell.countsAsKnownSpell);
 }

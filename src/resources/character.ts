@@ -4,7 +4,7 @@ import { ENDPOINTS } from "../api/endpoints.js";
 import type { DdbCharacter } from "../types/character.js";
 import type { DdbCampaign, DdbCampaignCharacter2 } from "../types/api.js";
 import { HttpError } from "../resilience/index.js";
-import { ABILITY_NAMES, calculateAbilityModifier, computeFinalAbilityScore, computeLevel, calculateMaxHp, calculateCurrentHp, calculateAc } from "../utils/character-calculations.js";
+import { ABILITY_NAMES, calculateAbilityModifier, computeFinalAbilityScore, computeLevel, calculateMaxHp, calculateCurrentHp, calculateAc, collectSpells, isCastableSpell } from "../utils/character-calculations.js";
 
 function formatAbilityScores(char: DdbCharacter): string {
   return ABILITY_NAMES.map((name, idx) => {
@@ -51,17 +51,11 @@ function formatCharacter(char: DdbCharacter): string {
 }
 
 function formatSpellList(char: DdbCharacter): string {
-  const allSpells = [
-    ...(char.spells.class ?? []),
-    ...(char.spells.race ?? []),
-    ...(char.spells.background ?? []),
-    ...(char.spells.item ?? []),
-    ...(char.spells.feat ?? []),
-  ];
+  const allSpells = collectSpells(char);
 
   if (allSpells.length === 0) return "No spells available.";
 
-  const prepared = allSpells.filter((s) => s.prepared || s.alwaysPrepared);
+  const prepared = allSpells.filter(isCastableSpell);
   const preparedByLevel = prepared.reduce((acc, spell) => {
     const level = spell.definition.level;
     if (!acc[level]) acc[level] = [];

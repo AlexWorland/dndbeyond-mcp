@@ -6,8 +6,10 @@ import {
   computeLevel,
   calculateMaxHp,
   calculateCurrentHp,
+  collectSpells,
+  isCastableSpell,
 } from "../../src/utils/character-calculations.js";
-import type { DdbCharacter, DdbModifier } from "../../src/types/character.js";
+import type { DdbCharacter, DdbModifier, DdbSpell } from "../../src/types/character.js";
 
 describe("computeFinalAbilityScore", () => {
   const baseStats = [
@@ -364,6 +366,94 @@ describe("calculateAc", () => {
 
     const result = calculateAc(charWithAcBonus);
     expect(result).toBe(13); // 10 + 2 (DEX) + 1 (feature)
+  });
+});
+
+describe("collectSpells", () => {
+  const spell = (name: string, level: number, extra: Record<string, unknown> = {}) =>
+    ({
+      id: 1,
+      definition: { name, level, school: "Evocation" },
+      prepared: false,
+      alwaysPrepared: false,
+      ...extra,
+    }) as unknown as DdbSpell;
+
+  it("should merge DDB v5 classSpells with legacy spells.class", () => {
+    // Real shape for character 172682295: classSpells holds the bard list,
+    // spells.class only holds the subclass's always-known grants.
+    const char = {
+      classSpells: [
+        {
+          characterClassId: 1,
+          spells: [
+            spell("Minor Illusion", 0, { countsAsKnownSpell: true }),
+            spell("Cure Wounds", 1, { countsAsKnownSpell: true }),
+            spell("Thunderwave", 1, { countsAsKnownSpell: true }),
+          ],
+        },
+      ],
+      spells: {
+        class: [spell("Charm Person", 1, { alwaysPrepared: true })],
+        race: null,
+        background: null,
+        item: null,
+        feat: null,
+      },
+    } as unknown as DdbCharacter;
+
+    expect(collectSpells(char).map((s) => s.definition.name)).toEqual([
+      "Minor Illusion",
+      "Cure Wounds",
+      "Thunderwave",
+      "Charm Person",
+    ]);
+  });
+
+  it("should de-duplicate spells present in both shapes", () => {
+    const char = {
+      classSpells: [{ characterClassId: 1, spells: [spell("Cure Wounds", 1)] }],
+      spells: {
+        class: [spell("Cure Wounds", 1)],
+        race: null,
+        background: null,
+        item: null,
+        feat: null,
+      },
+    } as unknown as DdbCharacter;
+
+    expect(collectSpells(char)).toHaveLength(1);
+  });
+
+  it("should tolerate a missing classSpells field", () => {
+    const char = {
+      spells: {
+        class: [spell("Charm Person", 1, { alwaysPrepared: true })],
+        race: null,
+        background: null,
+        item: null,
+        feat: null,
+      },
+    } as unknown as DdbCharacter;
+
+    expect(collectSpells(char).map((s) => s.definition.name)).toEqual(["Charm Person"]);
+  });
+});
+
+describe("isCastableSpell", () => {
+  const base = { definition: { name: "X", level: 1 }, prepared: false, alwaysPrepared: false };
+
+  it("should include known spells that are not flagged prepared (bard/sorcerer/warlock)", () => {
+    expect(isCastableSpell({ ...base, countsAsKnownSpell: true } as unknown as DdbSpell)).toBe(true);
+  });
+
+  it("should include prepared and alwaysPrepared spells", () => {
+    expect(isCastableSpell({ ...base, prepared: true } as unknown as DdbSpell)).toBe(true);
+    expect(isCastableSpell({ ...base, alwaysPrepared: true } as unknown as DdbSpell)).toBe(true);
+  });
+
+  it("should exclude spells that are neither prepared nor known", () => {
+    expect(isCastableSpell(base as unknown as DdbSpell)).toBe(false);
   });
 });
 
