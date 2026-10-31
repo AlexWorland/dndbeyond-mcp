@@ -13,7 +13,7 @@ import type {
 } from "../types/character.js";
 import type { DdbCampaign, DdbCampaignCharacter2 } from "../types/api.js";
 import { fuzzyMatch, levenshteinDistance } from "../utils/fuzzy-match.js";
-import { ABILITY_NAMES, ABILITY_SUBTYPE_MAP, calculateAbilityModifier, sumModifierBonuses, computeFinalAbilityScore, computeLevel, calculateMaxHp, calculateCurrentHp, calculateAc } from "../utils/character-calculations.js";
+import { ABILITY_NAMES, ABILITY_SUBTYPE_MAP, calculateAbilityModifier, sumModifierBonuses, computeFinalAbilityScore, computeLevel, calculateMaxHp, calculateCurrentHp, calculateAc, collectSpells, isCastableSpell } from "../utils/character-calculations.js";
 
 interface GetCharacterParams {
   characterId?: number;
@@ -60,7 +60,7 @@ function formatSpells(char: DdbCharacter): string {
 
   if (allSpells.length === 0) return StringUtils.EMPTY;
 
-  const prepared = allSpells.filter((s) => s.prepared || s.alwaysPrepared);
+  const prepared = allSpells.filter(isCastableSpell);
   const preparedByLevel = prepared.reduce((acc, spell) => {
     const level = spell.definition.level;
     if (!acc[level]) acc[level] = [];
@@ -95,13 +95,7 @@ function formatInventory(char: DdbCharacter): string {
 // ============================================================================
 
 function getAllSpells(char: DdbCharacter): DdbSpell[] {
-  return [
-    ...(char.spells.class ?? []),
-    ...(char.spells.race ?? []),
-    ...(char.spells.background ?? []),
-    ...(char.spells.item ?? []),
-    ...(char.spells.feat ?? []),
-  ];
+  return collectSpells(char);
 }
 
 function stripHtml(s: string | null | undefined): string {

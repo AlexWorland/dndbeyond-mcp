@@ -18,6 +18,8 @@ export interface DdbCharacter {
   lifestyleId: number;
   currencies: DdbCurrencies;
   spells: DdbSpellsContainer;
+  /** DDB v5: class spells live here, grouped by class. */
+  classSpells?: DdbClassSpellGroup[] | null;
   inventory: DdbInventoryItem[];
   deathSaves: DdbDeathSaves;
   traits: DdbTraits;
@@ -121,7 +123,15 @@ export interface DdbSpell {
   };
   prepared: boolean;
   alwaysPrepared: boolean;
-  usesSpellSlot: boolean;
+  /** True for spells on the character's known list (DDB's `classSpells`). */
+  countsAsKnownSpell?: boolean;
+  usesSpellSlot?: boolean;
+}
+
+/** DDB v5 groups class spells by class instead of the legacy `spells.class` array. */
+export interface DdbClassSpellGroup {
+  characterClassId: number;
+  spells: DdbSpell[];
 }
 
 export interface DdbInventoryItem {
