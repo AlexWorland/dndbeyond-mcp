@@ -37,7 +37,8 @@ const mockCharacter: DdbCharacter = {
     feat: [],
     condition: [],
   },
-  baseHitPoints: 40,
+  // Rolls-only base: CON 15 (+2) adds 10 at level 5 => max 45
+  baseHitPoints: 30,
   bonusHitPoints: 5,
   overrideHitPoints: null,
   removedHitPoints: 10,

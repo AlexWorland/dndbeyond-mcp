@@ -59,14 +59,47 @@ export function computeFinalAbilityScore(
 }
 
 export function computeLevel(char: DdbCharacter): number {
-  return char.classes.reduce((sum, cls) => sum + cls.level, 0);
+  return (char.classes ?? []).reduce((sum, cls) => sum + cls.level, 0);
 }
 
 export function calculateMaxHp(char: DdbCharacter): number {
-  const base = char.baseHitPoints;
+  if (char.overrideHitPoints != null) return char.overrideHitPoints;
+
+  const base = char.baseHitPoints ?? 0;
   const bonus = char.bonusHitPoints ?? 0;
-  const override = char.overrideHitPoints;
-  return override ?? (base + bonus);
+  const level = computeLevel(char) || 1;
+
+  // D&D Beyond's sheet adds the Constitution modifier once per character level
+  // on top of baseHitPoints (hit dice rolls) and bonusHitPoints (feats/items).
+  const conScore = computeFinalAbilityScore(
+    char.stats ?? [],
+    char.bonusStats ?? [],
+    char.overrideStats ?? [],
+    char.modifiers ?? {},
+    3
+  );
+  const conMod = Math.floor((conScore - 10) / 2);
+
+  return base + bonus + conMod * level;
+}
+
+/**
+ * Base AC granted by "unarmored armor class" modifiers.
+ * D&D Beyond represents natural armor (e.g. Lizardfolk) as a `set` modifier whose
+ * value is the bonus over 10 (3 => AC 13 + DEX), but some sources store the full
+ * value instead, so accept both conventions.
+ */
+export function getUnarmoredBaseAc(char: DdbCharacter): number {
+  let base = 10;
+  for (const list of Object.values(char.modifiers ?? {})) {
+    if (!Array.isArray(list)) continue;
+    for (const mod of list) {
+      if (mod.type !== "set" || mod.subType !== "unarmored-armor-class" || mod.value == null) continue;
+      const candidate = mod.value <= 10 ? 10 + mod.value : mod.value;
+      base = Math.max(base, candidate);
+    }
+  }
+  return base;
 }
 
 export function calculateCurrentHp(char: DdbCharacter): number {
@@ -84,14 +117,16 @@ export function calculateAc(char: DdbCharacter): number {
   let armorType: "heavy" | "medium" | "light" | "none" = "none";
   let shieldBonus = 0;
 
-  for (const item of char.inventory) {
+  for (const item of char.inventory ?? []) {
     if (!item.equipped) continue;
 
+    const itemName = item.definition.name?.toLowerCase() || "";
     const itemType = item.definition.type?.toLowerCase() || "";
     const filterType = item.definition.filterType?.toLowerCase() || "";
 
-    // Check for shield
-    if (itemType.includes("shield")) {
+    // Check for shield. D&D Beyond leaves `definition.type` empty for many
+    // shield items, so the name and filterType are the reliable signals.
+    if (itemName.includes("shield") || itemType.includes("shield") || filterType.includes("shield")) {
       shieldBonus = item.definition.armorClass ?? 2;
       continue;
     }
@@ -121,16 +156,22 @@ export function calculateAc(char: DdbCharacter): number {
   let finalAc = baseAc;
   if (armorType === "none") {
     // Check for unarmored defense
-    const isBarbarian = char.classes.some(cls => cls.definition.name === "Barbarian");
-    const isMonk = char.classes.some(cls => cls.definition.name === "Monk");
+    const classes = char.classes ?? [];
+    const isBarbarian = classes.some(cls => cls.definition.name === "Barbarian");
+    const isMonk = classes.some(cls => cls.definition.name === "Monk");
 
-    if (isBarbarian) {
-      finalAc = 10 + dexMod + conMod;
-    } else if (isMonk) {
-      finalAc = 10 + dexMod + wisMod;
-    } else {
-      finalAc = 10 + dexMod;
-    }
+    // Without armor, the character gets the best available unarmored formula:
+    // natural armor (Lizardfolk etc.), Barbarian/Monk unarmored defense, or plain 10 + DEX.
+    const naturalArmorBase = getUnarmoredBaseAc(char);
+    const candidates = [10 + dexMod];
+    if (isBarbarian) candidates.push(10 + dexMod + conMod);
+    if (isMonk) candidates.push(10 + dexMod + wisMod);
+    if (naturalArmorBase > 10) candidates.push(naturalArmorBase + dexMod);
+
+    finalAc = Math.max(...candidates);
+
+    // "bonus" style unarmored armor class modifiers stack on top
+    finalAc += sumModifierBonuses(char.modifiers, "unarmored-armor-class");
   } else if (armorType === "light") {
     finalAc = baseAc + dexMod;
   } else if (armorType === "medium") {
@@ -142,10 +183,9 @@ export function calculateAc(char: DdbCharacter): number {
   // Add shield bonus
   finalAc += shieldBonus;
 
-  // Add AC modifiers from features/spells
+  // Add AC modifiers from features/spells (unarmored handled above)
   const acBonus = sumModifierBonuses(char.modifiers, "armor-class")
-    + sumModifierBonuses(char.modifiers, "armored-armor-class")
-    + sumModifierBonuses(char.modifiers, "unarmored-armor-class");
+    + sumModifierBonuses(char.modifiers, "armored-armor-class");
 
   finalAc += acBonus;
 
